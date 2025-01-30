@@ -1,0 +1,7 @@
+jupyterlab
+kaleido
+opencv-python
+pandas
+plotly
+rasterio
+tqdm
