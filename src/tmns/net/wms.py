@@ -23,8 +23,8 @@ class WMS:
             self.url = url
         if epsg_code:
             self.epsg_code = epsg_code
-        if center_ll:
-            self.center_ll = center_ll
+        if not center_ll is None:
+            self.center_ll = list(center_ll)
         if win_size_pix:
             self.win_size_pix = win_size_pix
         if gsd:

@@ -1,0 +1,24 @@
+[project]
+
+name = "ssppy"
+version = "0.0.1"
+description = "Python tools for Terminus APIs"
+license = {file = "LICENSE"}
+readme = "Readme.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3.11"
+]
+
+#  Dependencies
+dependencies = [
+    'numpy',
+    'pyproj'
+]
+
+#  Optional Dependencies
+#[project.optional-dependencies]
+#dev = []
+
+#  Project Information
+

@@ -1,3 +1,4 @@
+ipywidgets
 jupyterlab
 kaleido
 opencv-python
