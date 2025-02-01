@@ -1,6 +1,6 @@
 [project]
 
-name = "ssppy"
+name = "terminus-python"
 version = "0.0.1"
 description = "Python tools for Terminus APIs"
 license = {file = "LICENSE"}
@@ -17,8 +17,19 @@ dependencies = [
 ]
 
 #  Optional Dependencies
-#[project.optional-dependencies]
-#dev = []
+[project.optional-dependencies]
+dev = [ 'black' ]
 
 #  Project Information
+[project.urls]
+"Homepage" = "https://github.com/Terminus-Geospatial/terminus-python"
+
+#[project.scripts]
+
+
+#  Configure the build system
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
 
