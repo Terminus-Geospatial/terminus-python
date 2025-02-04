@@ -222,11 +222,11 @@ class Poly_Style( Color_Style ):
                   kml_name   = 'PolyStyle' ):
 
         #  Build Parent
-        ColorStyle.__init__( self, 
-                             id         = id,
-                             color      = color,
-                             color_mode = color_mode,
-                             kml_name   = kml_name )
+        Color_Style.__init__( self, 
+                              id         = id,
+                              color      = color,
+                              color_mode = color_mode,
+                              kml_name   = kml_name )
 
         # Set Polygon Attributes
         self.fill = fill
@@ -240,7 +240,7 @@ class Poly_Style( Color_Style ):
         output = ''
 
         #  Add Parent stuff
-        output += KML_ColorStyle.get_kml_content( self, offset )
+        output += Color_Style.get_kml_content( self, offset )
 
         #  Add the fill
         if self.fill:
@@ -250,7 +250,7 @@ class Poly_Style( Color_Style ):
         #  Return result
         return output
 
-class IconStyle( ColorStyle ):
+class Icon_Style( Color_Style ):
 
     def __init__( self, 
                   id         = None,
@@ -262,11 +262,11 @@ class IconStyle( ColorStyle ):
                   kml_name   = 'PolyStyle' ):
 
         #  Build Parent
-        ColorStyle.__init__( self, 
-                             id         = id,
-                             color      = color,
-                             color_mode = color_mode, 
-                             kml_name   = kml_name )
+        Color_Style.__init__( self, 
+                              id         = id,
+                              color      = color,
+                              color_mode = color_mode, 
+                              kml_name   = kml_name )
 
         # Set Polygon Attributes
         self.scale = scale
@@ -274,7 +274,7 @@ class IconStyle( ColorStyle ):
         self.icon = icon
 
 
-    def Get_KML_Content(self, offset=0):
+    def get_kml_content(self, offset=0):
         #  Create gap string
         gap = ' ' * offset
 
@@ -282,7 +282,7 @@ class IconStyle( ColorStyle ):
         output = ''
 
         #  Add Parent stuff
-        output += KML_ColorStyle.Get_KML_Content(self, offset)
+        output += Color_Style.get_kml_content(self, offset)
 
         #  Add the
 
@@ -290,18 +290,22 @@ class IconStyle( ColorStyle ):
         #  Return result
         return output
 
-class KML_LabelStyle(KML_ColorStyle):
+class KML_LabelStyle(Color_Style):
 
     def __init__(self, id=None, color=None, color_mode = None, scale=None, kml_name='PolyStyle'):
 
         #  Build Parent
-        KML_ColorStyle.__init__(self, id=id, color=color, color_mode=color_mode, kml_name=kml_name)
+        Color_Style.__init__( self,
+                              id=id,
+                              color=color,
+                              color_mode=color_mode,
+                              kml_name=kml_name)
 
         # Set Polygon Attributes
         self.scale = scale
 
 
-    def Get_KML_Content(self, offset = 0):
+    def get_kml_content(self, offset = 0):
 
         #  Create gap string
         gap = ' ' * offset
@@ -310,7 +314,7 @@ class KML_LabelStyle(KML_ColorStyle):
         output = ''
 
         #  Add Parent stuff
-        output += KML_ColorStyle.Get_KML_Content(self, offset)
+        output += Color_Style.Get_KML_Content(self, offset)
 
         #  Add the
 
@@ -318,7 +322,7 @@ class KML_LabelStyle(KML_ColorStyle):
         #  Return result
         return output
 
-class KML_Style(KML_StyleSelector):
+class Style( Style_Selector ):
 
     def __init__(self, id=None,
                  line_style=None,
@@ -328,7 +332,7 @@ class KML_Style(KML_StyleSelector):
                  kml_name='Style'):
 
         #  Create Parent
-        KML_StyleSelector.__init__(self, id=id, kml_name=kml_name)
+        Style_Selector.__init__(self, id=id, kml_name=kml_name)
 
         #  Set styles
         self.line_style = line_style
@@ -346,7 +350,7 @@ class KML_Style(KML_StyleSelector):
         output = ''
 
         #  add parent stuff
-        output += KML_StyleSelector.Get_KML_Content(self, offset)
+        output += Style_Selector.get_kml_content(self, offset)
 
         #  Add Line Style
         if self.line_style is not None:
@@ -764,7 +768,7 @@ class Polygon( Geometry ):
             output += gap + '    <coordinates>\n'
             output += gap + '       '
             for p in self.outerPoints:
-                output += p.As_KML_Simple() + ' '
+                output += p.as_kml_simple() + ' '
             output += '\n' + gap + '    </coordinates>\n'
             output += gap + '  </LinearRing>\n'
             output += gap + '</outerBoundaryIs>\n'
@@ -778,7 +782,7 @@ class Polygon( Geometry ):
             output += gap + '    <coordinates>\n'
             output += gap + '       '
             for p in self.innerPoints:
-                output += p.As_KML_Simple() + ' '
+                output += p.as_kml_simple() + ' '
             output += '\n' + gap + '    </coordinates>\n'
             output += gap + '  </LinearRing>\n'
             output += gap + '</innerBoundaryIs>\n'
@@ -786,17 +790,14 @@ class Polygon( Geometry ):
         return output
 
 
-class KML_Writer:
+class Writer:
 
     #  List of nodes
     nodes = []
 
     document = None
 
-    def __init__(self, output_pathname = None):
-
-        # Set the output pathname
-        self.output_pathname = output_pathname
+    def __init__(self):
 
         #  Default nodes
         self.nodes = []
@@ -804,7 +805,7 @@ class KML_Writer:
         self.document = Document()
 
 
-    def Add_Node(self, node):
+    def add_node(self, node):
 
         #  Append to node
         self.document.append_node( node )
@@ -815,18 +816,18 @@ class KML_Writer:
             self.add_node( node )
 
 
-    def ToString(self):
+    def to_string( self ):
 
         output  = '<?xml version="1.0" encoding="UTF-8"?>\n'
         output += '<kml xmlns="http://www.opengis.net/kml/2.2">\n'
-        output += self.document.As_KML()
+        output += self.document.as_kml()
         output += '</kml>\n'
         return output
 
     def write(self, input_path, logger = None ):
 
         if logger is None:
-            logger = logging.getLogger( 'kml.KML_Writer' )
+            logger = logging.getLogger( 'kml.Writer' )
 
         #  Create output path
         output_pathname = os.path.splitext(input_path)[0] + '.kml'
@@ -834,5 +835,5 @@ class KML_Writer:
         #  Open file for output
         logger.debug( f'Writing to {output_pathname}')
         with open(output_pathname, 'w') as fout:
-            fout.write(self.ToString())
+            fout.write(self.to_string())
 

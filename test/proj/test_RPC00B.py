@@ -21,6 +21,10 @@ import numpy as np
 from tmns.core.types import GCP
 from tmns.dem.fixed import Fixed_DEM
 from tmns.dem.gtiff import DEM_File as DEM
+from tmns.io.kml import ( Folder, 
+                          Placemark,
+                          Point,
+                          Writer ) 
 import tmns.proj.RPC00B as RPC00B
             
 
@@ -118,11 +122,11 @@ class proj_RPC00B( unittest.TestCase ):
 
         #  Compute Elevation Range
         elevations = []
-        
 
         # Iterate over pixels
         index = 0
         gcps = []
+        kml_points = []
         for r in range( 0, img_size[1], 100 ):
             for c in range( 0, img_size[0], 100 ):
 
@@ -141,6 +145,15 @@ class proj_RPC00B( unittest.TestCase ):
                 index += 1
                 gcps.append( gcp )
 
+                new_point = Placemark( name = f'GCP {id}',
+                                       geometry = Point( lat  = lla[1],
+                                                         lon  = lla[0],
+                                                         elev = lla[2] ) )
+                kml_points.append( new_point )
 
+        writer = Writer()
+        folder = Folder( 'pixel2world', features=kml_points )
+        writer.add_node( folder )
+        writer.write( 'output' )
 
         
