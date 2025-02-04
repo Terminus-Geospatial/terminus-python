@@ -55,6 +55,7 @@ def interp_index_nd( vals, eps = 0.0001 ):
 
 def interp_image( image, dx, dy, p00, p10, p01, p11 ):
     
+    print( f'Image Size: {image.shape}' )
     p00 = image[p00[1],p00[0]]
     p10 = image[p10[1],p10[0]]
     p01 = image[p01[1],p01[0]]

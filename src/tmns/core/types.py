@@ -21,3 +21,7 @@ class GCP:
         self.pixel      = pixel
         self.coordinate = coordinate
 
+
+    def __str__(self):
+        return f'GCP: id: {self.id}, pixel: {self.pixel}, coordinate: {self.coordinate}'
+    

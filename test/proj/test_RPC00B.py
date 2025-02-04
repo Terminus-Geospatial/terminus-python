@@ -18,28 +18,43 @@ import unittest
 import numpy as np
 
 #  Terminus Libraries
+from tmns.core.types import GCP
+from tmns.dem.fixed import Fixed_DEM
+from tmns.dem.gtiff import DEM_File as DEM
 import tmns.proj.RPC00B as RPC00B
-
-def load_rpc_file( rpc_path ):
-
-    data = {}
-    with open( rpc_path, 'r' ) as fin:
-        for line in fin.readlines():
-            parts = line.replace(' ','').strip().split(':')
-
-            term = RPC00B.Term.from_str(parts[0])
-            value = float(parts[1])
-            data[term] = value
-
-    #  Create RPC object from data
-    return RPC00B.RPC00B.from_dict( data )
             
 
 class proj_RPC00B( unittest.TestCase ):
 
+    @staticmethod
+    def load_rpc_file( rpc_path ):
+        data = {}
+        with open( rpc_path, 'r' ) as fin:
+            for line in fin.readlines():
+                parts = line.replace(' ','').strip().split(':')
+
+                term = RPC00B.Term.from_str(parts[0])
+                value = float(parts[1])
+                data[term] = value
+
+        #  Create RPC object from data
+        return RPC00B.RPC00B.from_dict( data )
+
+
+    def setUp(self):
+    
+        #  Make sure the GeoTiff example file exists
+        self.tif_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
+                                                        '../data/Denver_SRTM_GL1.tif' ) )
+        
+        self.assertTrue( os.path.exists( self.tif_path ) )
+        self.dem = DEM( self.tif_path )
+
+        return super().setUp()
+    
     def verify_projection( self, model, logger, gcps ):
         '''
-        Project 
+        
         '''
         image_size = model.image_size_pixels()
 
@@ -52,7 +67,7 @@ class proj_RPC00B( unittest.TestCase ):
             #  Convert world back to pixel coordinate
             pix = model.world_to_pixel( ref_coord )
             lla = model.pixel_to_world( ref_pixel,
-                                        ellipsoid_height = 1625,
+                                        dem_model = Fixed_DEM( 1625 ),
                                         logger = logger )
 
             pix_delta = np.sum( pix - ref_pixel )
@@ -62,27 +77,72 @@ class proj_RPC00B( unittest.TestCase ):
     
     def test_planet1(self):
 
-        logger = logging.getLogger( 'test_RPC00B.planet1' )
+        logger = logging.getLogger( 'test_RPC00B.test_planet1' )
 
         #  Make sure the RPC example file exists
         rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
                                                    '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
-        
         self.assertTrue( os.path.exists( rpc_path ) )
 
         #  Load RPC file
-        model = load_rpc_file( rpc_path )
+        rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
 
         #  GCP Reference
         gcps = { 1: { 'lla': [ -104.967822, 39.735651, 1625], 'pix': [6328, 834] } }
 
         #  Verify some key values
-        self.assertTrue( np.sum( model.center_pixel() - np.array([ 4440 , 2652 ])) < 0.1 )
-        self.assertTrue( np.sum( model.center_coord() - np.array([ -105.0657, 39.69, 1970 ])) < 0.1 )
+        self.assertTrue( np.sum( rpc_model.center_pixel() - np.array([ 4440 , 2652 ])) < 0.1 )
+        self.assertTrue( np.sum( rpc_model.center_coord() - np.array([ -105.0657, 39.69, 1970 ])) < 0.1 )
         
         #  Run Projection Test
-        self.verify_projection( model, logger, gcps )
+        self.verify_projection( rpc_model, logger, gcps )
 
-        print(model)
+        print(rpc_model)
+
+    def test_planet1_solver(self):
+
+        logger = logging.getLogger( 'test_RPC00B.planet1' )
+        logger.debug( 'Logger Initialized' )
+
+        #  Make sure the RPC example file exists
+        rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
+                                                   '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
+        self.assertTrue( os.path.exists( rpc_path ) )
+
+        #  Load RPC Model
+        rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
+
+        #  Create GCPs
+        img_size = rpc_model.image_size_pixels().astype('int32')
+        logger.debug( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
+
+        #  Compute Elevation Range
+        elevations = []
+        
+
+        # Iterate over pixels
+        index = 0
+        gcps = []
+        for r in range( 0, img_size[1], 100 ):
+            for c in range( 0, img_size[0], 100 ):
+
+                # Pixel value
+                pixel = np.array( [ c, r ], dtype = np.float64 )
+
+                #  World coordinate
+                lla = rpc_model.pixel_to_world( pixel,
+                                                dem_model = self.dem,
+                                                logger = logger )
+
+                #  Add to gcp list
+                gcp = GCP( id = index,
+                           pixel = pixel,
+                           coordinate = lla )
+                print( gcp )
+                index += 1
+
+                gcps.append( gcp )
+
+
 
         

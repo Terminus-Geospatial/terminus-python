@@ -9,6 +9,9 @@
 #**************************** INTELLECTUAL PROPERTY RIGHTS ****************************#
 #
 
+#  Numpy Libraries
+import numpy as np
+
 class Rectangle:
     '''
     Stores a rectangle which can be expanded by adding points. 
@@ -20,7 +23,9 @@ class Rectangle:
         self.min_pnt = point
 
         if size is None:
-            self.size    = np.zeros( len(point), np.float64 )
+            self.size = np.zeros( len(point), np.float64 )
+        else:
+            self.size = size
 
         self.sum_pnt = np.copy(point)
         self.cnt_pnt = 1
@@ -48,7 +53,21 @@ class Rectangle:
                 self.size[x]   += abs(min_delta[x])
             elif max_delta[x] > 0:
                 self.size[x] += abs(max_delta[x])
-        
+
+    def inside( self, pt ):
+        '''
+        Check if a point is inside the rectangle.
+        '''
+        if len(pt) != len(self.min_pnt):
+            raise Exception( f'Rectangle has dimensions of {len(self.min_pnt)} but input has dimensions of {len(pt)}')
+
+        for idx in range( 0, len(self.min_pnt)):
+            if pt[idx] < self.min_point()[idx]:
+                return False
+            if pt[idx] > self.max_point()[idx]:
+                return False
+        return True
+            
 
     def __str__(self):
         output  =  'Rectangle:\n'
@@ -57,3 +76,10 @@ class Rectangle:
         output += f' - sum_point: {self.sum_pnt}'
         return output
         
+    @staticmethod
+    def from_minmax( min_x, min_y, max_x, max_y ):
+        
+        minp = np.array( [ min_x, min_y ], dtype = np.float64 )
+        size = np.array( [ max_x - min_x, max_y - min_y ], dtype = np.float64 )
+
+        return Rectangle( minp, size )

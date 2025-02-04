@@ -43,4 +43,7 @@ class proj_gtiff( unittest.TestCase ):
         elev_m = model.elevation_meters( [ -104.764170, 39.947794 ] )
         self.assertAlmostEqual( elev_m, 1557, 1 )
         
-        
+        #  Check stats
+        self.assertTrue( model.has_stats() )
+        self.assertAlmostEqual( model.stats.mean, 1789.82460, 1 )
+        self.assertAlmostEqual( model.stats.std,   225.55451, 1 )

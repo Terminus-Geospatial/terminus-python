@@ -176,7 +176,6 @@ class RPC00B(Base_Model):
     
     def pixel_to_world( self,
                         pixel,
-                        ellipsoid_height = None,
                         dem_model = None,
                         max_iterations = 10,
                         convergence_epsilon = 0.1,
@@ -193,8 +192,10 @@ class RPC00B(Base_Model):
         
         # Normalized height
         hval = self.get(Term.HEIGHT_SCALE)
-        if not ellipsoid_height is None:
-            hval = ellipsoid_height
+        if not dem_model is None:
+            hval = dem_model.stats.mean
+        
+        print( 'hval: ', hval )
         nhgt = ( hval - self.get(Term.HEIGHT_OFF) ) / self.get(Term.HEIGHT_SCALE)
 
         #  Initialize values for iterative cycle
@@ -266,10 +267,12 @@ class RPC00B(Base_Model):
         if iteration == max_iterations:
             logger.warning( f'Failed to converge after {max_iterations} iterations.' )
         
-        #  Now un-normalize the ground point lat, lon and establish return quantity:
-        ground_point = np.array( [ nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF),
-                                   nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF),
-                                   ellipsoid_height ],
+        #  Now un-normalize the ground point lat, lon and establish return quantity
+        gnd_lat = nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF)
+        gnd_lon = nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF)
+        ground_point = np.array( [ gnd_lat,
+                                   gnd_lon,
+                                   dem_model.elevation_meters( np.array( [gnd_lon, gnd_lat] ) ) ],
                                  dtype = np.float64 )
         
         return ground_point

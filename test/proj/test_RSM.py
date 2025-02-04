@@ -65,7 +65,6 @@ class proj_RSM( unittest.TestCase ):
 
         #  Create GCPs
         img_size = rpc_model.image_size_pixels().astype('int32')
-        print( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
 
         #  Compute Elevation Range
         elevations = []
