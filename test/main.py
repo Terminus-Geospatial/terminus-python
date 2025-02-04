@@ -9,18 +9,25 @@
 #**************************** INTELLECTUAL PROPERTY RIGHTS ****************************#
 #
 
+#  Python Libraries
+import logging
+import os
+import sys
+import unittest
 
-class RSM:
+if __name__ == '__main__':
 
-    def __init__(self):
-        pass
+    #  Define the start directory
+    test_dir = os.path.dirname( sys.argv[0] )
 
-    @staticmethod
-    def solve( model, gcps ):
+    #  Initialize the system logger
+    logging.basicConfig( level = logging.debug )
 
-        #  Compute PLH for each GCP and build 
-        
-        pass
-        
+    loader = unittest.TestLoader()
 
+    tests = loader.discover( pattern   = '*',
+                             start_dir = test_dir )
     
+    runner = unittest.runner.TextTestRunner()
+
+    runner.run( tests )

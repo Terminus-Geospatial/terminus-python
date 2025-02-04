@@ -14,7 +14,12 @@ import logging
 import os
 import unittest
 
+#  Numpy
+import numpy as np
+
 #  Terminus Libraries
+from tmns.core.types import GCP
+from tmns.dem.gtiff import DEM_File as DEM
 import tmns.proj.RPC00B as RPC00B
 import tmns.proj.RSM 
 
@@ -34,6 +39,17 @@ def load_rpc_file( rpc_path ):
 
 class proj_RSM( unittest.TestCase ):
 
+    def setUp(self):
+    
+        #  Make sure the GeoTiff example file exists
+        self.tif_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
+                                                        '../data/Denver_SRTM_GL1.tif' ) )
+        
+        self.assertTrue( os.path.exists( self.tif_path ) )
+        self.dem = DEM( self.tif_path )
+
+        return super().setUp()
+    
     def test_planet1(self):
 
         logger = logging.getLogger( 'test_RSM.planet1' )
@@ -45,10 +61,38 @@ class proj_RSM( unittest.TestCase ):
         self.assertTrue( os.path.exists( rpc_path ) )
 
         #  Load RPC Model
-        model = load_rpc_file( rpc_path )
+        rpc_model = load_rpc_file( rpc_path )
 
         #  Create GCPs
+        img_size = rpc_model.image_size_pixels().astype('int32')
+        print( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
+
+        #  Compute Elevation Range
+        elevations = []
         
+
+        # Iterate over pixels
+        index = 0
+        gcps = []
+        for r in range( 0, img_size[1], 100 ):
+            for c in range( 0, img_size[0], 100 ):
+
+                # Pixel value
+                pixel = np.array( [ c, r ], dtype = np.float64 )
+
+                #  World coordinate
+                lla = rpc_model.pixel_to_world( pixel,
+                                                dem_model = self.dem,
+                                                logger = logger )
+
+                #  Add to gcp list
+                gcp = GCP( id = index,
+                           pixel = pixel,
+                           coordinate = lla )
+                print( gcp )
+                index += 1
+
+                gcps.append( gcp )
 
 
     

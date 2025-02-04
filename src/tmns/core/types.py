@@ -9,18 +9,15 @@
 #**************************** INTELLECTUAL PROPERTY RIGHTS ****************************#
 #
 
+#  Numpy Libraries
+import numpy as np
+import numpy.typing as npt
 
-class RSM:
+class GCP:
 
-    def __init__(self):
-        pass
+    def __init__( self, id: int, pixel: np.ndarray, coordinate: np.ndarray ):
 
-    @staticmethod
-    def solve( model, gcps ):
+        self.id         = id
+        self.pixel      = pixel
+        self.coordinate = coordinate
 
-        #  Compute PLH for each GCP and build 
-        
-        pass
-        
-
-    

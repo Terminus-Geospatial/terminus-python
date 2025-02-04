@@ -134,6 +134,8 @@ class RPC00B(Base_Model):
     def get( self, key ):
         return self.data[key]
 
+    def set( self, key, value ):
+        self.data[key] = value
     
     def center_pixel(self):
         return np.array( [ self.get(Term.SAMP_OFF), self.get(Term.LINE_OFF )], dtype = np.float64 )
@@ -430,20 +432,20 @@ class RPC00B(Base_Model):
 
         model = RPC00B()
         
-        model.SAMP_OFF   = center_pixel[0]
-        model.SAMP_SCALE = image_width / 2.0
+        model.set( Term.SAMP_OFF,     center_pixel[0] )
+        model.set( Term.SAMP_SCALE,   image_width / 2.0 )
+        
+        model.set( Term.LINE_OFF,     center_pixel[1] )
+        model.set( Term.LINE_SCALE,   image_height / 2.0 )
+        
+        model.set( Term.LON_OFF,      center_lla[0] )
+        model.set( Term.LON_SCALE,    max_delta_lla[0] )
 
-        model.LINE_OFF   = center_pixel[1]
-        model.LINE_SCALE = image_height / 2.0
+        model.set( Term.LON_OFF,      center_lla[1] )
+        model.set( Term.LAT_SCALE,    max_delta_lla[1] )
 
-        model.LON_OFF      = center_lla[0]
-        model.LON_SCALE    = max_delta_lla[0]
-
-        model.LON_OFF      = center_lla[1]
-        model.LAT_SCALE    = max_delta_lla[1]
-
-        model.HEIGHT_OFF   = center_lla[2]
-        model.HEIGHT_SCALE = max_delta_lla[2]
+        model.set( Term.HEIGHT_OFF,   center_lla[2] )
+        model.set( Term.HEIGHT_SCALE, max_delta_lla[2] )
         
         return model
 
