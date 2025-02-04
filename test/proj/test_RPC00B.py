@@ -138,9 +138,7 @@ class proj_RPC00B( unittest.TestCase ):
                 gcp = GCP( id = index,
                            pixel = pixel,
                            coordinate = lla )
-                print( gcp )
                 index += 1
-
                 gcps.append( gcp )
 
 

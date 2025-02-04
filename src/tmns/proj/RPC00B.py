@@ -187,15 +187,16 @@ class RPC00B(Base_Model):
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
         # NOTE: U = line, V = sample
-        pix_norm = np.divide( ( pixel - np.array( [ self.get(Term.SAMP_OFF), self.get(Term.LINE_OFF) ] ) ),
-                              np.array( [self.get(Term.SAMP_SCALE), self.get(Term.LINE_SCALE)]) )
-        
+        pix_norm = np.divide( ( pixel - np.array( [ self.get(Term.SAMP_OFF), 
+                                                    self.get(Term.LINE_OFF) ] ) ),
+                              np.array( [ self.get(Term.SAMP_SCALE), 
+                                          self.get(Term.LINE_SCALE) ]) )
+
         # Normalized height
         hval = self.get(Term.HEIGHT_SCALE)
         if not dem_model is None:
             hval = dem_model.stats.mean
         
-        print( 'hval: ', hval )
         nhgt = ( hval - self.get(Term.HEIGHT_OFF) ) / self.get(Term.HEIGHT_SCALE)
 
         #  Initialize values for iterative cycle
@@ -244,16 +245,16 @@ class RPC00B(Base_Model):
                 dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients() )
          
                 # Analytically compute partials of quotients U and V wrt lat, lon:
-                dU_dLat = (Qu*dPu_dLat - Pu*dQu_dLat)/(Qu*Qu)
-                dU_dLon = (Qu*dPu_dLon - Pu*dQu_dLon)/(Qu*Qu)
-                dV_dLat = (Qv*dPv_dLat - Pv*dQv_dLat)/(Qv*Qv)
-                dV_dLon = (Qv*dPv_dLon - Pv*dQv_dLon)/(Qv*Qv)
+                dU_dLat = ( Qu * dPu_dLat - Pu * dQu_dLat ) / ( Qu * Qu )
+                dU_dLon = ( Qu * dPu_dLon - Pu * dQu_dLon ) / ( Qu * Qu )
+                dV_dLat = ( Qv * dPv_dLat - Pv * dQv_dLat ) / ( Qv * Qv )
+                dV_dLon = ( Qv * dPv_dLon - Pv * dQv_dLon ) / ( Qv * Qv )
          
                 W = dU_dLon*dV_dLat - dU_dLat*dV_dLon;
          
                 # Now compute the corrections to normalized lat, lon:
-                deltaLat = (dU_dLon * delta_uv[1] - dV_dLon * delta_uv[0]) / W
-                deltaLon = (dV_dLat * delta_uv[0] - dU_dLat * delta_uv[1]) / W
+                deltaLon = ( dU_dLon * delta_uv[1] - dV_dLon * delta_uv[0] ) / W
+                deltaLat = ( dV_dLat * delta_uv[0] - dU_dLat * delta_uv[1] ) / W
                 nlat += deltaLat
                 nlon += deltaLon
 
@@ -268,8 +269,9 @@ class RPC00B(Base_Model):
             logger.warning( f'Failed to converge after {max_iterations} iterations.' )
         
         #  Now un-normalize the ground point lat, lon and establish return quantity
-        gnd_lat = nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF)
-        gnd_lon = nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF)
+        gnd_lon = nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF)
+        gnd_lat = nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF)
+
         ground_point = np.array( [ gnd_lat,
                                    gnd_lon,
                                    dem_model.elevation_meters( np.array( [gnd_lon, gnd_lat] ) ) ],
@@ -451,5 +453,17 @@ class RPC00B(Base_Model):
         model.set( Term.HEIGHT_SCALE, max_delta_lla[2] )
         
         return model
+
+
+    @staticmethod
+    def solve( model, gcps ):
+
+        if logger == None:
+            logger = logging.getLogger( 'RPC00B.solve' )
+
+        #  Create values
+        
+        
+        pass
 
         
