@@ -30,12 +30,14 @@ class image_utils(unittest.TestCase):
         self.assertEqual( res[1], 1 )
 
         res = interp_index( 5.0000001 )
-        self.assertEqual( len(res), 1 )
+        self.assertEqual( len(res), 2 )
         self.assertEqual( res[0], 5 )
+        self.assertEqual( res[1], 5 )
 
         res = interp_index( 9.999999999 )
-        self.assertEqual( len(res), 1 )
+        self.assertEqual( len(res), 2 )
         self.assertEqual( res[0], 10 )
+        self.assertEqual( res[1], 10 )
 
     def test_interp_index_nd( self ):
 

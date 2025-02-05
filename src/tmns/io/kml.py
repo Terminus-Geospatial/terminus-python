@@ -290,9 +290,14 @@ class Icon_Style( Color_Style ):
         #  Return result
         return output
 
-class KML_LabelStyle(Color_Style):
+class Label_Style(Color_Style):
 
-    def __init__(self, id=None, color=None, color_mode = None, scale=None, kml_name='PolyStyle'):
+    def __init__( self,
+                  id=None,
+                  color=None,
+                  color_mode = None,
+                  scale=None,
+                  kml_name='LabelStyle'):
 
         #  Build Parent
         Color_Style.__init__( self,

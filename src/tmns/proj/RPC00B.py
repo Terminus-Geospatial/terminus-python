@@ -17,7 +17,7 @@ import logging
 import numpy as np
 
 #  Project Libraries
-from tmns.cam.model import Base_Model
+from tmns.proj.transformer import BaseTransformer
 
 class Term(Enum):
     SAMP_OFF           =  1
@@ -118,7 +118,7 @@ class Term(Enum):
     
     
 
-class RPC00B(Base_Model):
+class RPC00B(BaseTransformer):
 
     def __init__(self, data = None ):
         '''
@@ -151,18 +151,21 @@ class RPC00B(Base_Model):
                          dtype = np.float64 )
 
     
-    def world_to_pixel( self, coord, logger = None ):
+    def world_to_pixel( self, coord, skip_elevation = False, logger = None, method = 'B' ):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.world_to_pixel' )
 
         #  Convert with offsets
-        L = (coord[0]    - self.get( Term.LON_OFF ) )    / self.get( Term.LON_SCALE )
-        P = (coord[1]    - self.get( Term.LAT_OFF ) )    / self.get( Term.LAT_SCALE )
-        H = (coord[2] - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
+        L = (coord[0] - self.get( Term.LON_OFF ) )    / self.get( Term.LON_SCALE )
+        P = (coord[1] - self.get( Term.LAT_OFF ) )    / self.get( Term.LAT_SCALE )
+
+        H = ( - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
+        if skip_elevation == False:
+            H = (coord[2] - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
         print( f'L: {L}, P: {P}, H: {H}' )
 
-        plh_vec = self.get_plh_vector( P = P, L = L, H = H )
+        plh_vec = self.get_plh_vector( P = P, L = L, H = H, method = method )
 
         r_n_n = np.dot( self.get_line_numerator_coefficients(),     plh_vec )
         r_n_d = np.dot( self.get_line_denominator_coefficients(),   plh_vec )
@@ -179,6 +182,7 @@ class RPC00B(Base_Model):
                         dem_model = None,
                         max_iterations = 10,
                         convergence_epsilon = 0.1,
+                        method = 'B',
                         logger = None ):
 
         if logger == None:
@@ -187,10 +191,8 @@ class RPC00B(Base_Model):
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
         # NOTE: U = line, V = sample
-        pix_norm = np.divide( ( pixel - np.array( [ self.get(Term.SAMP_OFF), 
-                                                    self.get(Term.LINE_OFF) ] ) ),
-                              np.array( [ self.get(Term.SAMP_SCALE), 
-                                          self.get(Term.LINE_SCALE) ]) )
+        U = ( pixel[0] - self.get(Term.SAMP_OFF) ) / self.get(Term.SAMP_SCALE)
+        V = ( pixel[1] - self.get(Term.LINE_OFF) ) / self.get(Term.LINE_SCALE)
 
         # Normalized height
         hval = self.get(Term.HEIGHT_SCALE)
@@ -214,25 +216,30 @@ class RPC00B(Base_Model):
 
             #  Calculate the normalized line and sample Uc, Vc as ratio of
             #  polynomials Pu, Qu and Pv, Qv:
-            plh_vec = self.get_plh_vector( nlat, nlon, nhgt )
+            plh_vec = self.get_plh_vector( P = nlat,
+                                           L = nlon,
+                                           H = nhgt,
+                                           method = method )
+
+            Pv = np.dot( plh_vec, self.get_sample_numerator_coefficients() )
+            Qv = np.dot( plh_vec, self.get_sample_denominator_coefficients() )
 
             Pu = np.dot( plh_vec, self.get_line_numerator_coefficients() )
             Qu = np.dot( plh_vec, self.get_line_denominator_coefficients() )
-            Pv = np.dot( plh_vec, self.get_sample_numerator_coefficients() )
-            Qv = np.dot( plh_vec, self.get_sample_denominator_coefficients() )
             
-            if np.isnan( Pu ) or np.isnan( Pv ) or np.isnan( Qu ) or np.isnan( Qv ):
+            if np.isnan( Pv ) or np.isnan( Pu ) or np.isnan( Qv ) or np.isnan( Qu ):
                 return None
             
             #  Compute result
-            Uc = Pu / Qu
-            Vc = Pv / Qv
+            xNew = Pv / Qv
+            yNew = Pu / Qu
             
             #  Compute residuals between desired and computed line, sample:
-            delta_uv = np.abs( pix_norm - np.array( [Uc, Vc] ) )
-
+            delta_U = U - yNew
+            delta_V = V - xNew
+            
             #  Check for convergence and skip re-linearization if converged:
-            if delta_uv[0] > epsilonU or delta_uv[1] > epsilonV:
+            if abs(delta_U) > epsilonU or abs(delta_V) > epsilonV:
 
                 #  Analytically compute the partials of each polynomial wrt lat, lon:
                 dPu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_numerator_coefficients() )
@@ -250,16 +257,16 @@ class RPC00B(Base_Model):
                 dV_dLat = ( Qv * dPv_dLat - Pv * dQv_dLat ) / ( Qv * Qv )
                 dV_dLon = ( Qv * dPv_dLon - Pv * dQv_dLon ) / ( Qv * Qv )
          
-                W = dU_dLon*dV_dLat - dU_dLat*dV_dLon;
+                W = dU_dLon * dV_dLat - dU_dLat * dV_dLon
          
                 # Now compute the corrections to normalized lat, lon:
-                deltaLon = ( dU_dLon * delta_uv[1] - dV_dLon * delta_uv[0] ) / W
-                deltaLat = ( dV_dLat * delta_uv[0] - dU_dLat * delta_uv[1] ) / W
+                deltaLat = ( dU_dLon * delta_V - dV_dLon * delta_U ) / W
+                deltaLon = ( dV_dLat * delta_U - dU_dLat * delta_V ) / W
                 nlat += deltaLat
                 nlon += deltaLon
 
             #  Check if we've triggered the exit condition
-            if abs(delta_uv[0]) > epsilonU or abs(delta_uv[1]) > epsilonV:
+            if abs(delta_U) > epsilonU or abs(delta_V) > epsilonV:
                 break
             
             iteration += 1
@@ -272,8 +279,8 @@ class RPC00B(Base_Model):
         gnd_lon = nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF)
         gnd_lat = nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF)
 
-        ground_point = np.array( [ gnd_lat,
-                                   gnd_lon,
+        ground_point = np.array( [ gnd_lon,
+                                   gnd_lat,
                                    dem_model.elevation_meters( np.array( [gnd_lon, gnd_lat] ) ) ],
                                  dtype = np.float64 )
         
@@ -287,14 +294,26 @@ class RPC00B(Base_Model):
         return output
 
     
-    def get_plh_vector( self, P, L, H ):
+    def get_plh_vector( self, P, L, H, method = 'B' ):
         
-        PLH_vec = np.array( [        1.0,          L,          P,           H,      L * P,   
-                                   L * H,      P * H,     L ** 2,      P ** 2,     H ** 2,
-                               P * L * H,     L ** 3, L * P ** 2,  L * H ** 2, L ** 2 * P,
-                                  P ** 3, P * H ** 2, L ** 2 * H,  P ** 2 * H,      H ** 3 ],
-                            dtype = np.float64 )
-        return PLH_vec
+        if method == 'A':
+            PLH_vec = np.array( [        1.0,           L,           P,          H,
+                                       L * P,       L * H,       P * H,  L * P * H,
+                                      L ** 2,      P ** 2,      H ** 2,     L ** 3,
+                                  P * L ** 2,  H * L ** 2,  P ** 2 * L,     P ** 3,
+                                  H * P ** 2,  H ** 2 * L,  H ** 2 * P,     H ** 3 ],
+                                dtype = np.float64 )
+            return PLH_vec
+        
+        else:
+            PLH_vec = np.array( [        1.0,           L,           P,           H,
+                                       L * P,       L * H,       P * H,      L ** 2,
+                                      P ** 2,      H ** 2,   P * L * H,      L ** 3,
+                                  L * P ** 2,  L * H ** 2,  L ** 2 * P,      P ** 3,
+                                  P * H ** 2,  L ** 2 * H,  P ** 2 * H,      H ** 3 ],
+                                dtype = np.float64 )
+            
+            return PLH_vec
 
     
     def get_sample_numerator_coefficients(self):
@@ -462,7 +481,7 @@ class RPC00B(Base_Model):
             logger = logging.getLogger( 'RPC00B.solve' )
 
         #  Create values
-        
+
         
         pass
 

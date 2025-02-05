@@ -93,8 +93,9 @@ class DEM_File:
         xform = self.dataset.transform
         pixel = ~xform * (lla[0], lla[1])
 
+        
         indices = interp_index_nd( pixel )
-
+        #logger.debug( f'LLA: {lla}, Pixel: {pixel}, Indices: {indices}' )
 
         # Top left
         p00 = indices[0]

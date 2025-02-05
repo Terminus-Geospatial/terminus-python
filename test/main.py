@@ -41,10 +41,11 @@ if __name__ == '__main__':
     logging.basicConfig( level = logging.DEBUG )
 
     #  Remove particularly obnoxious loggers
-    logging.getLogger( 'rasterio._base' ).disabled = True
-    logging.getLogger( 'rasterio._env' ).disabled = True
-    logging.getLogger( 'rasterio._io' ).disabled = True
-    logging.getLogger( 'rasterio.env' ).disabled = True
+    logging.getLogger( 'rasterio._base' ).disabled     = True
+    logging.getLogger( 'rasterio._env' ).disabled      = True
+    logging.getLogger( 'rasterio._filepath' ).disabled = True
+    logging.getLogger( 'rasterio._io' ).disabled       = True
+    logging.getLogger( 'rasterio.env' ).disabled       = True
 
     loader = unittest.TestLoader()
 

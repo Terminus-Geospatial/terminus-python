@@ -88,7 +88,6 @@ class proj_RSM( unittest.TestCase ):
                 gcp = GCP( id = index,
                            pixel = pixel,
                            coordinate = lla )
-                print( gcp )
                 index += 1
 
                 gcps.append( gcp )

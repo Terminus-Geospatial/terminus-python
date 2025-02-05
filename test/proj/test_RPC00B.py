@@ -21,9 +21,11 @@ import numpy as np
 from tmns.core.types import GCP
 from tmns.dem.fixed import Fixed_DEM
 from tmns.dem.gtiff import DEM_File as DEM
-from tmns.io.kml import ( Folder, 
+from tmns.io.kml import ( Folder,
+                          Label_Style, 
                           Placemark,
                           Point,
+                          Style,
                           Writer ) 
 import tmns.proj.RPC00B as RPC00B
             
@@ -74,9 +76,10 @@ class proj_RPC00B( unittest.TestCase ):
                                         dem_model = Fixed_DEM( 1625 ),
                                         logger = logger )
 
-            pix_delta = np.sum( pix - ref_pixel )
-                
-            print( f'Ground: {ref_coord}, Pix Out: {pix}, Pix Delta: {pix_delta}, LLA: {lla}' )
+            pix_delta = np.abs(pix - ref_pixel)
+            self.assertLess( pix_delta[0], 1 )
+            self.assertLess( pix_delta[1], 1 )
+            
 
     
     def test_planet1(self):
@@ -91,6 +94,11 @@ class proj_RPC00B( unittest.TestCase ):
         #  Load RPC file
         rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
 
+        #  Check image size
+        img_size = rpc_model.image_size_pixels()
+        self.assertAlmostEqual( img_size[0], 8880, 1 )
+        self.assertAlmostEqual( img_size[1], 5304, 1 )
+
         #  GCP Reference
         gcps = { 1: { 'lla': [ -104.967822, 39.735651, 1625], 'pix': [6328, 834] } }
 
@@ -101,7 +109,7 @@ class proj_RPC00B( unittest.TestCase ):
         #  Run Projection Test
         self.verify_projection( rpc_model, logger, gcps )
 
-        print(rpc_model)
+        logger.debug(rpc_model)
 
     def test_planet1_solver(self):
 
@@ -127,8 +135,8 @@ class proj_RPC00B( unittest.TestCase ):
         index = 0
         gcps = []
         kml_points = []
-        for r in range( 0, img_size[1], 100 ):
-            for c in range( 0, img_size[0], 100 ):
+        for r in range( 0, img_size[1], 500 ):
+            for c in range( 0, img_size[0], 500 ):
 
                 # Pixel value
                 pixel = np.array( [ c, r ], dtype = np.float64 )
@@ -136,7 +144,9 @@ class proj_RPC00B( unittest.TestCase ):
                 #  World coordinate
                 lla = rpc_model.pixel_to_world( pixel,
                                                 dem_model = self.dem,
-                                                logger = logger )
+                                                logger = logger,
+                                                method = 'B' )
+                print( 'Pixel: ', pixel, ', LLA: ', lla )
 
                 #  Add to gcp list
                 gcp = GCP( id = index,
@@ -145,14 +155,20 @@ class proj_RPC00B( unittest.TestCase ):
                 index += 1
                 gcps.append( gcp )
 
-                new_point = Placemark( name = f'GCP {id}',
+                new_point = Placemark( name = f'GCP {index}',
+                                       styleUrl='#mainStyle',
                                        geometry = Point( lat  = lla[1],
                                                          lon  = lla[0],
                                                          elev = lla[2] ) )
                 kml_points.append( new_point )
 
         writer = Writer()
-        folder = Folder( 'pixel2world', features=kml_points )
+
+        style = Style( id = 'mainStyle',
+                       label_style = Label_Style( color = 'ff0000ff' ) )
+
+        folder = Folder( 'pixel2world',
+                         features=kml_points )
         writer.add_node( folder )
         writer.write( 'output' )
 
