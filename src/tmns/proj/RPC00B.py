@@ -547,22 +547,12 @@ class RPC00B(BaseTransformer):
                 fout.write( f'{k.name}: {self.data[k]}\n' )
 
     @staticmethod
-    def solve( gcps: list[GCP],
+    def solve( gcps: list[GCP], 
                image_size = None,
-               dem = None,
-               method = 'B',
-               logger = None,
-               cheat_x_num = None,
-               cheat_x_den = None,
-               cheat_y_num = None,
-               cheat_y_den = None ):
-        '''
-        Todo:  Use a better spread function to better model min/max. 
-               How does our "spread" method work across the equator?
+               dem = None, 
+               method = 'B', 
+               logger = None ):
 
-        The "Cheat" coefficient sets allow verification of this API if you want to hard-code the results
-        '''
-        
         if logger == None:
             logger = logging.getLogger( 'RPC00B.solve' )
 
@@ -783,4 +773,98 @@ class RPC00B(BaseTransformer):
 
         return coefficients
     
+    @staticmethod
+    def system_of_equations( r,
+                             lon_vals,
+                             lat_vals,
+                             hgt_vals,
+                             logger = None ):
+
+        if logger == None:
+            logger = logging.getLogger( 'RPC00B.system_of_equations' )
+
+        eq = np.zeros( [ len( r ), 39 ], dtype = np.float64 )
+        for idx in range( len( r ) ):
+
+            eq[idx][0]  = 1
+            eq[idx][1]  = lon_vals[idx]
+            eq[idx][2]  = lat_vals[idx]
+            eq[idx][3]  = hgt_vals[idx]
+            eq[idx][4]  = lon_vals[idx] * lat_vals[idx]
+            eq[idx][5]  = lon_vals[idx] * hgt_vals[idx]
+            eq[idx][6]  = lat_vals[idx] * hgt_vals[idx]
+            eq[idx][7]  = lon_vals[idx] * lon_vals[idx]
+            eq[idx][8]  = lat_vals[idx] * lat_vals[idx]
+            eq[idx][9]  = hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][10] = lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][11] = lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][12] = lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][13] = lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][14] = lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][15] = lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][16] = lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][17] = lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][18] = lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][19] = hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][20] = -r[idx] * lon_vals[idx]
+            eq[idx][21] = -r[idx] * lat_vals[idx]
+            eq[idx][22] = -r[idx] * hgt_vals[idx]
+            eq[idx][23] = -r[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][24] = -r[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][25] = -r[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][26] = -r[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][27] = -r[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][28] = -r[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][29] = -r[idx] * lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][30] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][31] = -r[idx] * lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][32] = -r[idx] * lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][33] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][34] = -r[idx] * lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][35] = -r[idx] * lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][36] = -r[idx] * lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][37] = -r[idx] * lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][38] = -r[idx] * hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+
+
+        return eq
+    
+    @staticmethod
+    def setup_weight_matrix( coeffs,
+                             f, x, y, z ):
+
+        result = np.zeros( f.shape[0] )
+        row = np.zeros( len( coeffs ) )
+
+        for idx in range( f.shape[0] ):
+            row[0]  = 1
+            row[1]  = x[idx]
+            row[2]  = y[idx]
+            row[3]  = z[idx]
+            row[4]  = x[idx] * y[idx]
+            row[5]  = x[idx] * z[idx]
+            row[6]  = y[idx] * z[idx]
+            row[7]  = x[idx] * x[idx]
+            row[8]  = y[idx] * y[idx]
+            row[9]  = z[idx] * z[idx]
+            row[10] = x[idx] * y[idx] * z[idx]
+            row[11] = x[idx] * x[idx] * x[idx]
+            row[12] = x[idx] * y[idx] * y[idx]
+            row[13] = x[idx] * z[idx] * z[idx]
+            row[14] = x[idx] * x[idx] * y[idx]
+            row[15] = y[idx] * y[idx] * y[idx]
+            row[16] = y[idx] * z[idx] * z[idx]
+            row[17] = x[idx] * x[idx] * z[idx]
+            row[18] = y[idx] * y[idx] * z[idx]
+            row[19] = z[idx] * z[idx] * z[idx]
+
+            result[idx] = 0.0
+            for idx2 in range( len( row ) ):
+                result[idx] += row[idx2] * coeffs[idx2]
             
+      
+            if result[idx] > 0.000000001:
+                result[idx] = 1.0/result[idx]
+
+        return result
+    
