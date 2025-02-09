@@ -15,8 +15,12 @@ import logging
 
 #  Numpy
 import numpy as np
+np.set_printoptions(precision=6, floatmode='fixed')
 
 #  Project Libraries
+from tmns.core.types       import GCP
+from tmns.math.geometry    import Rectangle
+from tmns.math.solver      import pseudoinverse
 from tmns.proj.transformer import BaseTransformer
 
 class Term(Enum):
@@ -187,6 +191,7 @@ class RPC00B(BaseTransformer):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.pixel_to_world' )
+        #logger.debug( f'Pixel: {pixel}, Method: {method}')
 
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
@@ -228,28 +233,30 @@ class RPC00B(BaseTransformer):
             Qu = np.dot( plh_vec, self.get_line_denominator_coefficients() )
             
             if np.isnan( Pv ) or np.isnan( Pu ) or np.isnan( Qv ) or np.isnan( Qu ):
+                logger.warning( f'Resulting projection yielded a nan: Pv: {Pv}, Pu: {Pu}, Qv: {Qv}, Qu: {Qu}' )
                 return None
             
             #  Compute result
-            xNew = Pv / Qv
-            yNew = Pu / Qu
+            Vc = Pv / Qv
+            Uc = Pu / Qu
             
             #  Compute residuals between desired and computed line, sample:
-            delta_U = U - yNew
-            delta_V = V - xNew
+            delta_U = U - Uc
+            delta_V = V - Vc
             
+            #logger.debug( f' - Check 1: DeltaU: {delta_U:0.6f}, DeltaV: {delta_V:0.6f}, eU: {epsilonU:0.6f}, eV: {epsilonV:0.6f}' )
             #  Check for convergence and skip re-linearization if converged:
             if abs(delta_U) > epsilonU or abs(delta_V) > epsilonV:
 
                 #  Analytically compute the partials of each polynomial wrt lat, lon:
-                dPu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_numerator_coefficients() )
-                dQu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_denominator_coefficients() )
-                dPv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_numerator_coefficients() )
-                dQv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_denominator_coefficients() )
-                dPu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_numerator_coefficients() )
-                dQu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_denominator_coefficients() )
-                dPv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_numerator_coefficients() )
-                dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients() )
+                dPu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     method = method )
+                dQu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   method = method )
+                dPv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   method = method )
+                dQv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), method = method )
+                dPu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     method = method )
+                dQu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   method = method )
+                dPv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   method = method )
+                dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), method = method )
          
                 # Analytically compute partials of quotients U and V wrt lat, lon:
                 dU_dLat = ( Qu * dPu_dLat - Pu * dQu_dLat ) / ( Qu * Qu )
@@ -264,9 +271,10 @@ class RPC00B(BaseTransformer):
                 deltaLon = ( dV_dLat * delta_U - dU_dLat * delta_V ) / W
                 nlat += deltaLat
                 nlon += deltaLon
+                #logger.debug( f' - Check 2: W: {W}, dLat: {deltaLat:0.6f}, dLon: {deltaLon:0.6f}' )
 
             #  Check if we've triggered the exit condition
-            if abs(delta_U) > epsilonU or abs(delta_V) > epsilonV:
+            if abs(delta_U) < epsilonU and abs(delta_V) < epsilonV:
                 break
             
             iteration += 1
@@ -376,19 +384,48 @@ class RPC00B(BaseTransformer):
                           dtype = np.float64 )
 
     
-    def dPoly_dLat( self, P, L, H, poly):
+    def dPoly_dLat( self, P, L, H, poly, method ):
 
-        parts = np.array( [poly[2], poly[4], poly[6], poly[8], poly[10],  poly[12], poly[14],  poly[15], poly[16],  poly[18] ], dtype = np.float64 )
-        terms = np.array( [      1,       L,       H,   2 * P,    L * H, 2 * L * P,    L * L, 3 * P * P,    H * H, 2 * P * H ], dtype = np.float64 )
+        parts = None
+        terms = None
+
+        if method == 'A':
+            parts = np.array( [poly[2], poly[4], poly[6], poly[7], poly[9],  poly[12],   poly[14],  poly[15],   poly[16],  poly[18] ], dtype = np.float64 )
+            terms = np.array( [      1,       L,       H,   L * H,   2 * P,     L * L,  2 * L * P, 3 * P * P,  2 * P * H,     H * H ], dtype = np.float64 )
+
+        elif method == 'B':
+            parts = np.array( [poly[2], poly[4], poly[6], poly[8], poly[10],  poly[12], poly[14],  poly[15], poly[16],  poly[18] ], dtype = np.float64 )
+            terms = np.array( [      1,       L,       H,   2 * P,    L * H, 2 * L * P,    L * L, 3 * P * P,    H * H, 2 * P * H ], dtype = np.float64 )
+        
         return np.dot( parts, terms )
 
     
-    def dPoly_dLon( self, P, L, H, poly):
+    def dPoly_dLon( self, P, L, H, poly, method ):
 
-        parts = np.array( [poly[1], poly[4], poly[5], poly[7], poly[10],  poly[11], poly[12],  poly[13], poly[14],  poly[17] ], dtype = np.float64 )
-        terms = np.array( [      1,       P,       H,   2 * L,    P * H, 3 * L * L,    P * P,     H * H, 2 * P * L, 2 * L * H ], dtype = np.float64 )
+        parts = None
+        terms = None
+
+        if method == 'A':
+            parts = np.array( [poly[1], poly[4], poly[5], poly[7], poly[8],  poly[11], poly[12],  poly[13], poly[14],  poly[17] ], dtype = np.float64 )
+            terms = np.array( [      1,       P,       H,   P * H,   2 * L, 3 * L * L, 2 * L * P, 2 * L * H,   P * P,     H * H ], dtype = np.float64 )
+
+        elif method == 'B':
+            parts = np.array( [poly[1], poly[4], poly[5], poly[7], poly[10],  poly[11], poly[12],  poly[13], poly[14],  poly[17] ], dtype = np.float64 )
+            terms = np.array( [      1,       P,       H,   2 * L,    P * H, 3 * L * L,    P * P,     H * H, 2 * P * L, 2 * L * H ], dtype = np.float64 )
+        
         return np.dot( parts, terms )
 
+    def dPoly_dHgt( self, P, L, H, poly, method ):
+
+        if method == 'A':
+            parts = np.array( [poly[3], poly[5], poly[6], poly[7], poly[10],  poly[13],  poly[16],  poly[17],  poly[18],  poly[19] ], dtype = np.float64 )
+            terms = np.array( [      1,       L,       P,   L * P,    2 * H,     L * L,     P * P, 2 * L * H, 2 * P * H,  3 * H * H ], dtype = np.float64 )
+        
+        elif method == 'B':
+            parts = np.array( [poly[3], poly[5], poly[6], poly[9], poly[10],  poly[13],   poly[16],  poly[17],  poly[18],  poly[19] ], dtype = np.float64 )
+            terms = np.array( [      1,       L,       P,   2 * H,    L * P, 2 * L * H,  2 * P * H,     L * L,     P * P, 3 * H * H ], dtype = np.float64 )
+      
+        return np.dot( parts, terms )
     
     @staticmethod
     def from_dict( data ):
@@ -475,14 +512,214 @@ class RPC00B(BaseTransformer):
 
 
     @staticmethod
-    def solve( model, gcps ):
+    def solve( gcps: list[GCP], dem = None, method = 'B', logger = None ):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.solve' )
 
         #  Create values
+        img_bbox = Rectangle( gcps[0].pixel )
+        lla_bbox = Rectangle( gcps[0].coordinate )
+        for gcp in gcps[1:]:
+            img_bbox.add_point( gcp.pixel )
+            lla_bbox.add_point( gcp.coordinate )
 
+        logger.info( f'Image BBox: {img_bbox}' )
+        logger.info( f'Coord BBox: {lla_bbox}' )
         
-        pass
+        #  Define our center image point
+        center_pix = img_bbox.mean_point()
+        center_lla = lla_bbox.mean_point()
 
+        # Normalize Everything
+        fx = np.zeros( len( gcps ) )
+        fy = np.zeros( len( gcps ) )
         
+        x = np.zeros( len( gcps ) )
+        y = np.zeros( len( gcps ) )
+        z = np.zeros( len( gcps ) )
+        
+        maxDeltaLLA = np.zeros( len( center_lla ) )
+
+        for idx in range( len( gcps ) ):
+
+            d_lla = gcps[idx].coordinate - center_lla
+            
+            x[idx] = d_lla[0]
+            y[idx] = d_lla[1]
+            z[idx] = d_lla[2]
+
+            fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (img_bbox.size[0] / 2.0)
+            fy[idx] = (gcps[idx].pixel[1] - center_pix[1]) / (img_bbox.size[1] / 2.0)
+
+            if abs( d_lla[0] ) > maxDeltaLLA[0]:
+                maxDeltaLLA[0] = abs( d_lla[0] )
+
+            if abs( d_lla[1] ) > maxDeltaLLA[1]:
+                maxDeltaLLA[1] = abs( d_lla[1] )
+            
+            if abs( d_lla[2] ) > maxDeltaLLA[2]:
+                maxDeltaLLA[2] = abs( gcps[idx].coordinate[2] )
+            
+
+        for idx in range( len( gcps ) ):
+
+            x[idx] /= maxDeltaLLA[0]
+            y[idx] /= maxDeltaLLA[1]
+            z[idx] /= maxDeltaLLA[2]
+
+        #  Create a new model
+        rpc_model = RPC00B()
+        rpc_model.set( Term.LINE_OFF,   center_lla[0] )
+        rpc_model.set( Term.SAMP_OFF,   center_lla[1] )
+
+        rpc_model.set( Term.LINE_SCALE, img_bbox.size[1] / 2 )
+        rpc_model.set( Term.SAMP_SCALE, img_bbox.size[0] / 2 )
+        
+        rpc_model.set( Term.LON_SCALE,    center_lla[0] )
+        rpc_model.set( Term.LAT_SCALE,    center_lla[1] )
+        rpc_model.set( Term.HEIGHT_SCALE, center_lla[2] )
+        if dem == None:
+            rpc_model.set( Term.HEIGHT_SCALE, 0.0 )
+
+        #  Perform Least-Squares Fit
+        x_coeff = rpc_model.solve_coefficients( fx, x, y, z )
+        y_coeff = rpc_model.solve_coefficients( fy, x, y, z )
+
+    def solve_coefficients( self,
+                            pix_terms,
+                            lon_vals, 
+                            lat_vals, 
+                            hgt_vals, 
+                            logger = None ):
+
+        if logger == None:
+            logger = logging.getLogger( 'RPC00B.solve_coefficients' )
+
+        idx = 0
+
+        r = np.copy( pix_terms )
+        w = np.ones( len( pix_terms ) )
+
+        m = RPC00B.system_of_equations( r,
+                                        lon_vals,
+                                        lat_vals,
+                                        hgt_vals,
+                                        logger = logger )
+        logger.info( f'M:\n{m}' )
+
+        while True:
+
+            w2 = np.dot( w, w )
+
+            temp_coeff = pseudoinverse( m.T @ w2 @ m ) @ w2 @ r
+
+            #  Set denominator matrix
+            denominator = np.ones( 20 )
+            for idx in range( 20 ):
+                denominator[idx+1] = temp_coeff[20 + idx]
+            
+            #  Setup weight matrix
+            weights = RPC00B.setup_weight_matrix( denominator,
+                                                  r,
+                                                  lon_vals,
+                                                  lat_vals,
+                                                  hgt_vals )
+                
+
+    
+    @staticmethod
+    def system_of_equations( r,
+                             lon_vals,
+                             lat_vals,
+                             hgt_vals,
+                             logger = None ):
+
+        if logger == None:
+            logger = logging.getLogger( 'RPC00B.system_of_equations' )
+
+        eq = np.zeros( [ len( r ), 39 ], dtype = np.float64 )
+        for idx in range( len( r ) ):
+
+            eq[idx][0]  = 1
+            eq[idx][1]  = lon_vals[idx]
+            eq[idx][2]  = lat_vals[idx]
+            eq[idx][3]  = hgt_vals[idx]
+            eq[idx][4]  = lon_vals[idx] * lat_vals[idx]
+            eq[idx][5]  = lon_vals[idx] * hgt_vals[idx]
+            eq[idx][6]  = lat_vals[idx] * hgt_vals[idx]
+            eq[idx][7]  = lon_vals[idx] * lon_vals[idx]
+            eq[idx][8]  = lat_vals[idx] * lat_vals[idx]
+            eq[idx][9]  = hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][10] = lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][11] = lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][12] = lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][13] = lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][14] = lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][15] = lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][16] = lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][17] = lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][18] = lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][19] = hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][20] = -r[idx] * lon_vals[idx]
+            eq[idx][21] = -r[idx] * lat_vals[idx]
+            eq[idx][22] = -r[idx] * hgt_vals[idx]
+            eq[idx][23] = -r[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][24] = -r[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][25] = -r[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][26] = -r[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][27] = -r[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][28] = -r[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][29] = -r[idx] * lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][30] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
+            eq[idx][31] = -r[idx] * lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][32] = -r[idx] * lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][33] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
+            eq[idx][34] = -r[idx] * lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
+            eq[idx][35] = -r[idx] * lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+            eq[idx][36] = -r[idx] * lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
+            eq[idx][37] = -r[idx] * lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
+            eq[idx][38] = -r[idx] * hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+
+
+        return eq
+    
+    @staticmethod
+    def setup_weight_matrix( coeffs,
+                             f, x, y, z ):
+
+        result = np.zeros( f.shape[0] )
+        row = np.zeros( f.shape[0] )
+
+        for idx in range( f.shape[0] ):
+            row[0]  = 1
+            row[1]  = x[idx]
+            row[2]  = y[idx]
+            row[3]  = z[idx]
+            row[4]  = x[idx] * y[idx]
+            row[5]  = x[idx] * z[idx]
+            row[6]  = y[idx] * z[idx]
+            row[7]  = x[idx] * x[idx]
+            row[8]  = y[idx] * y[idx]
+            row[9]  = z[idx] * z[idx]
+            row[10] = x[idx] * y[idx] * z[idx]
+            row[11] = x[idx] * x[idx] * x[idx]
+            row[12] = x[idx] * y[idx] * y[idx]
+            row[13] = x[idx] * z[idx] * z[idx]
+            row[14] = x[idx] * x[idx] * y[idx]
+            row[15] = y[idx] * y[idx] * y[idx]
+            row[16] = y[idx] * z[idx] * z[idx]
+            row[17] = x[idx] * x[idx] * z[idx]
+            row[18] = y[idx] * y[idx] * z[idx]
+            row[19] = z[idx] * z[idx] * z[idx]
+
+            result[idx] = 0.0
+            for idx2 in range( len( row ) ):
+                result[idx] += row[idx2] * coeffs[idx2]
+            
+      
+            if result[idx] > 0.000000001:
+                result[idx] = 1.0/result[idx]
+
+        return result
+    

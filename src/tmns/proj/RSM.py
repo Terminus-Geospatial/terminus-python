@@ -113,12 +113,12 @@ class RSM:
         cnis  = self.rsmpia.get( RSMPIA_TAG.CNIS )
 
         #  Row Section Number
-        rsn = math.floor( ( pixel[1] + shift - minr ) ) / rssiz
+        rsn = math.floor( pixel[1] + shift - minr ) / rssiz
         rsn = 0 if rsn < 0 else rsn
         rsn = rnis - 1 if rsn > rnis - 1 else rsn
         
         #  Column Section Number
-        csn = math.floor( ( pixel[0] + shift - minc) ) / cssiz
+        csn = math.floor( pixel[0] + shift - minc ) / cssiz
         csn = 0 if csn < 0 else csn
         csn = cnis - 1 if csn > cnis - 1 else csn
 

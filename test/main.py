@@ -38,7 +38,7 @@ if __name__ == '__main__':
     test_dir = os.path.dirname( sys.argv[0] )
 
     #  Initialize the system logger
-    logging.basicConfig( level = logging.DEBUG )
+    logging.basicConfig( level = cmd_args.log_level )
 
     #  Remove particularly obnoxious loggers
     logging.getLogger( 'rasterio._base' ).disabled     = True

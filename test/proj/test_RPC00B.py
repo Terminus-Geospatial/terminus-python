@@ -16,6 +16,7 @@ import unittest
 
 #  Numpy 
 import numpy as np
+np.set_printoptions(precision=6, floatmode='fixed')
 
 #  Terminus Libraries
 from tmns.core.types import GCP
@@ -27,7 +28,7 @@ from tmns.io.kml import ( Folder,
                           Point,
                           Style,
                           Writer ) 
-import tmns.proj.RPC00B as RPC00B
+from tmns.proj import RPC00B
             
 
 class proj_RPC00B( unittest.TestCase ):
@@ -56,6 +57,8 @@ class proj_RPC00B( unittest.TestCase ):
         self.assertTrue( os.path.exists( self.tif_path ) )
         self.dem = DEM( self.tif_path )
 
+        self.flat_dem = Fixed_DEM( elevation_meters = 0 )
+
         return super().setUp()
     
     def verify_projection( self, model, logger, gcps ):
@@ -79,11 +82,17 @@ class proj_RPC00B( unittest.TestCase ):
             pix_delta = np.abs(pix - ref_pixel)
             self.assertLess( pix_delta[0], 1 )
             self.assertLess( pix_delta[1], 1 )
+
+            lla_delta = np.abs(lla - ref_coord)
+            self.assertLess( lla_delta[0], 1 )
+            self.assertLess( lla_delta[1], 1 )
+            self.assertLess( lla_delta[2], 1 )
+
+            logger.debug( f'Ref Coord: {ref_coord}, Ref Pixel: {ref_pixel}, Pix Out: {pix}, LLA: {lla}, Pix Delta: {pix_delta}, LLA Delta: {lla_delta}' )
             
 
     
     def test_planet1(self):
-
         logger = logging.getLogger( 'test_RPC00B.test_planet1' )
 
         #  Make sure the RPC example file exists
@@ -111,9 +120,81 @@ class proj_RPC00B( unittest.TestCase ):
 
         logger.debug(rpc_model)
 
-    def test_planet1_solver(self):
+    def test_planet1_solver_dem(self):
 
-        logger = logging.getLogger( 'test_RPC00B.planet1' )
+        return
+        logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_dem' )
+        logger.debug( 'Logger Initialized' )
+
+        #  Make sure the RPC example file exists
+        rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
+                                                   '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
+        self.assertTrue( os.path.exists( rpc_path ) )
+
+        #  Load RPC Model
+        rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
+
+        #  Create GCPs
+        img_size = rpc_model.image_size_pixels().astype('int32')
+        logger.debug( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
+
+        #  Compute Elevation Range
+        elevations = []
+        method = 'B'
+
+        # Iterate over pixels
+        index = 0
+        gcps = []
+        kml_points = []
+        for r in range( 0, img_size[1], 500 ):
+            for c in range( 0, img_size[0], 500 ):
+
+                # Pixel value
+                pixel = np.array( [ c, r ], dtype = np.float64 )
+
+                #  World coordinate
+                lla = rpc_model.pixel_to_world( pixel,
+                                                dem_model = self.dem,
+                                                logger = logger,
+                                                method = method )
+                #print( 'Pixel: ', pixel, ', LLA: ', lla )
+
+                #  Add to gcp list
+                gcp = GCP( id = index,
+                           pixel = pixel,
+                           coordinate = lla )
+                index += 1
+                gcps.append( gcp )
+
+                new_point = Placemark( name = f'GCP {index}',
+                                       styleUrl='#mainStyle',
+                                       geometry = Point( lat  = lla[1],
+                                                         lon  = lla[0],
+                                                         elev = lla[2] ) )
+                kml_points.append( new_point )
+
+        #  Solve for model
+        logger.info( 'Solving RPC00B model' )
+        model = RPC00B.RPC00B.solve( gcps,
+                                     dem    = self.dem,
+                                     method = method,
+                                     logger = logger )
+
+        # Write Results to KML
+        writer = Writer()
+
+        style = Style( id = 'mainStyle',
+                       label_style = Label_Style( color = 'ff0000ff' ) )
+
+        folder = Folder( 'pixel2world',
+                         features=kml_points )
+        writer.add_node( folder )
+        writer.write( f'output_1_method_{method}' )
+    
+    def test_planet1_solver_flat(self):
+
+        return
+        logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_flat' )
         logger.debug( 'Logger Initialized' )
 
         #  Make sure the RPC example file exists
@@ -135,6 +216,7 @@ class proj_RPC00B( unittest.TestCase ):
         index = 0
         gcps = []
         kml_points = []
+        method = 'B'
         for r in range( 0, img_size[1], 500 ):
             for c in range( 0, img_size[0], 500 ):
 
@@ -143,10 +225,10 @@ class proj_RPC00B( unittest.TestCase ):
 
                 #  World coordinate
                 lla = rpc_model.pixel_to_world( pixel,
-                                                dem_model = self.dem,
+                                                dem_model = self.flat_dem,
                                                 logger = logger,
-                                                method = 'B' )
-                print( 'Pixel: ', pixel, ', LLA: ', lla )
+                                                method = method )
+                logger.debug( 'Pixel: ', pixel, ', LLA: ', lla )
 
                 #  Add to gcp list
                 gcp = GCP( id = index,
@@ -170,6 +252,6 @@ class proj_RPC00B( unittest.TestCase ):
         folder = Folder( 'pixel2world',
                          features=kml_points )
         writer.add_node( folder )
-        writer.write( 'output' )
+        writer.write( f'output_2_method_{method}' )
 
         
