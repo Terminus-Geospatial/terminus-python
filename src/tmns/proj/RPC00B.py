@@ -209,6 +209,9 @@ class RPC00B(BaseTransformer):
                         convergence_epsilon = 0.1,
                         method = 'B',
                         logger = None ):
+        '''
+        Convert a Pixel coordinate into World coordinates.
+        '''
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.pixel_to_world' )
@@ -217,8 +220,8 @@ class RPC00B(BaseTransformer):
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
         # NOTE: U = line, V = sample
-        U = ( pixel[0] - self.get(Term.SAMP_OFF) ) / self.get(Term.SAMP_SCALE)
-        V = ( pixel[1] - self.get(Term.LINE_OFF) ) / self.get(Term.LINE_SCALE)
+        V = ( pixel[0] - self.get(Term.SAMP_OFF) ) / self.get(Term.SAMP_SCALE)
+        U = ( pixel[1] - self.get(Term.LINE_OFF) ) / self.get(Term.LINE_SCALE)
 
         # Normalized height
         hval = self.get(Term.HEIGHT_SCALE)
@@ -246,7 +249,7 @@ class RPC00B(BaseTransformer):
                                            L = nlon,
                                            H = nhgt,
                                            method = method )
-
+            
             Pv = np.dot( plh_vec, self.get_sample_numerator_coefficients() )
             Qv = np.dot( plh_vec, self.get_sample_denominator_coefficients() )
 
@@ -254,6 +257,11 @@ class RPC00B(BaseTransformer):
             Qu = np.dot( plh_vec, self.get_line_denominator_coefficients() )
             
             if np.isnan( Pv ) or np.isnan( Pu ) or np.isnan( Qv ) or np.isnan( Qu ):
+                logger.warning( f'Iteration: {iteration}' )
+                logger.warning( f'Pixel: {pixel}' )
+                logger.warning( f'NLon: {nlon}, NLat: {nlat}, Nhgt: {nhgt}' )
+                logger.warning( f'PLH: {plh_vec}' )
+                logger.warning( f'SNum: {self.get_sample_numerator_coefficients()}')
                 logger.warning( f'Resulting projection yielded a nan: Pv: {Pv}, Pu: {Pu}, Qv: {Qv}, Qu: {Qu}' )
                 return None
             
@@ -532,25 +540,46 @@ class RPC00B(BaseTransformer):
         
         return model
 
+    def write_txt( self, pathname ):
+
+        with open( pathname, 'w' ) as fout:
+            for k in self.data.keys():
+                fout.write( f'{k.name}: {self.data[k]}\n' )
 
     @staticmethod
-    def solve( gcps: list[GCP], dem = None, method = 'B', logger = None ):
+    def solve( gcps: list[GCP], 
+               image_size = None,
+               dem = None, 
+               method = 'B', 
+               logger = None ):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.solve' )
 
         #  Create values
-        img_bbox = Rectangle( gcps[0].pixel )
-        lla_bbox = Rectangle( gcps[0].coordinate )
+        image_bbox = None
+        if image_size is None:
+            image_bbox = Rectangle( point = gcps[0].pixel )
+        else:
+            image_bbox = Rectangle( point = np.array( [0,0], dtype = np.float64 ), 
+                                    size  = image_size )
+            
+        lla_bbox = Rectangle( np.copy( gcps[0].coordinate ) )
         for gcp in gcps[1:]:
-            img_bbox.add_point( gcp.pixel )
-            lla_bbox.add_point( gcp.coordinate )
+            image_bbox.add_point( gcp.pixel )
+            lla_bbox.add_point( np.copy( gcp.coordinate ) )
 
-        logger.info( f'Image BBox: {img_bbox}' )
-        logger.info( f'Coord BBox: {lla_bbox}' )
+        logger.debug( f'Image BBox: {image_bbox}' )
+        logger.debug( f'Coord BBox: {lla_bbox}' )
         
         #  Define our center image point
-        center_pix = img_bbox.mean_point()
+        center_pix = None
+        if image_size is None:
+            center_pix = image_bbox.mean_point()
+        else:
+            center_pix = image_size * 0.5
+        
+        #  Solve the center coordinate point
         center_lla = lla_bbox.mean_point()
 
         # Normalize Everything
@@ -563,7 +592,23 @@ class RPC00B(BaseTransformer):
         
         maxDeltaLLA = np.zeros( len( center_lla ) )
 
+        minPnt_pair = None
+        maxPnt_pair = None
+
         for idx in range( len( gcps ) ):
+
+            #  Extract the points
+            if minPnt_pair == None:
+                minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
+                maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
+            
+            #  Check if min point
+            if np.linalg.norm( minPnt_pair[0] ) > np.linalg.norm( gcps[idx].pixel ):
+                minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
+                
+            #  Check if max point
+            if np.linalg.norm( maxPnt_pair[0] ) < np.linalg.norm( gcps[idx].pixel ):
+                maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
 
             d_lla = gcps[idx].coordinate - center_lla
             
@@ -571,8 +616,8 @@ class RPC00B(BaseTransformer):
             y[idx] = d_lla[1]
             z[idx] = d_lla[2]
 
-            fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (img_bbox.size[0] / 2.0)
-            fy[idx] = (gcps[idx].pixel[1] - center_pix[1]) / (img_bbox.size[1] / 2.0)
+            fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (image_bbox.size[0] / 2.0)
+            fy[idx] = (gcps[idx].pixel[1] - center_pix[1]) / (image_bbox.size[1] / 2.0)
 
             if abs( d_lla[0] ) > maxDeltaLLA[0]:
                 maxDeltaLLA[0] = abs( d_lla[0] )
@@ -582,7 +627,14 @@ class RPC00B(BaseTransformer):
             
             if abs( d_lla[2] ) > maxDeltaLLA[2]:
                 maxDeltaLLA[2] = abs( gcps[idx].coordinate[2] )
-            
+        
+        #  Solve delta
+        pnt_dlt = (maxPnt_pair[1] - minPnt_pair[1])
+        pnt_mag = np.ones( len( pnt_dlt ) )
+        for idx in range( len( pnt_dlt ) ):
+            if pnt_dlt[idx] < 0:
+                maxDeltaLLA[idx] *= -1
+        logger.debug( f'Point Delta: {pnt_dlt}, Mag: {pnt_mag}' )
 
         for idx in range( len( gcps ) ):
 
@@ -592,11 +644,11 @@ class RPC00B(BaseTransformer):
 
         #  Create a new model
         rpc_model = RPC00B()
-        rpc_model.set( Term.LINE_OFF,   center_lla[0] )
-        rpc_model.set( Term.SAMP_OFF,   center_lla[1] )
+        rpc_model.set( Term.SAMP_OFF,   center_pix[0] )
+        rpc_model.set( Term.LINE_OFF,   center_pix[1] )
 
-        rpc_model.set( Term.LINE_SCALE, img_bbox.size[1] / 2 )
-        rpc_model.set( Term.SAMP_SCALE, img_bbox.size[0] / 2 )
+        rpc_model.set( Term.SAMP_SCALE, image_bbox.size[0] / 2 )
+        rpc_model.set( Term.LINE_SCALE, image_bbox.size[1] / 2 )
         
         rpc_model.set( Term.LON_SCALE,    maxDeltaLLA[0] )
         rpc_model.set( Term.LAT_SCALE,    maxDeltaLLA[1] )

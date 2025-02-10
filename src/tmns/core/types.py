@@ -18,8 +18,8 @@ class GCP:
     def __init__( self, id: int, pixel: np.ndarray, coordinate: np.ndarray ):
 
         self.id         = id
-        self.pixel      = pixel
-        self.coordinate = coordinate
+        self.pixel      = np.copy( pixel )
+        self.coordinate = np.copy( coordinate )
 
 
     def __str__(self):
