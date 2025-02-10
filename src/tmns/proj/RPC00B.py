@@ -12,6 +12,7 @@
 #  Python Libraries
 from enum import Enum
 import logging
+import math
 
 #  Numpy
 import numpy as np
@@ -114,12 +115,32 @@ class Term(Enum):
     SAMP_DEN_COEFF_18  = 88
     SAMP_DEN_COEFF_19  = 89
     SAMP_DEN_COEFF_20  = 90
+    RMS_ERROR          = 91
+    MAX_ERROR          = 92
 
     @staticmethod
     def from_str( key ):
         return Term[key]
-        
     
+    @staticmethod
+    def get_sample_num( off ):
+        id = Term.SAMP_NUM_COEFF_1.value + off - 1
+        return Term(id)
+
+    @staticmethod
+    def get_sample_den( off ):
+        id = Term.SAMP_DEN_COEFF_1.value + off - 1
+        return Term(id)
+    
+    @staticmethod
+    def get_line_num( off ):
+        id = Term.LINE_NUM_COEFF_1.value + off - 1
+        return Term(id)
+
+    @staticmethod
+    def get_line_den( off ):
+        id = Term.LINE_DEN_COEFF_1.value + off - 1
+        return Term(id)
     
 
 class RPC00B(BaseTransformer):
@@ -167,7 +188,7 @@ class RPC00B(BaseTransformer):
         H = ( - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
         if skip_elevation == False:
             H = (coord[2] - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
-        print( f'L: {L}, P: {P}, H: {H}' )
+        logger.debug( f'L: {L}, P: {P}, H: {H}' )
 
         plh_vec = self.get_plh_vector( P = P, L = L, H = H, method = method )
 
@@ -479,7 +500,8 @@ class RPC00B(BaseTransformer):
                  Term.SAMP_DEN_COEFF_13:  0.0, Term.SAMP_DEN_COEFF_14:  0.0,
                  Term.SAMP_DEN_COEFF_15:  0.0, Term.SAMP_DEN_COEFF_16:  0.0,
                  Term.SAMP_DEN_COEFF_17:  0.0, Term.SAMP_DEN_COEFF_18:  0.0,
-                 Term.SAMP_DEN_COEFF_19:  0.0, Term.SAMP_DEN_COEFF_20:  0.0 }
+                 Term.SAMP_DEN_COEFF_19:  0.0, Term.SAMP_DEN_COEFF_20:  0.0,
+                 Term.RMS_ERROR:          0.0, Term.MAX_ERROR:          0.0 }
 
         return data   
 
@@ -576,15 +598,56 @@ class RPC00B(BaseTransformer):
         rpc_model.set( Term.LINE_SCALE, img_bbox.size[1] / 2 )
         rpc_model.set( Term.SAMP_SCALE, img_bbox.size[0] / 2 )
         
-        rpc_model.set( Term.LON_SCALE,    center_lla[0] )
-        rpc_model.set( Term.LAT_SCALE,    center_lla[1] )
-        rpc_model.set( Term.HEIGHT_SCALE, center_lla[2] )
+        rpc_model.set( Term.LON_SCALE,    maxDeltaLLA[0] )
+        rpc_model.set( Term.LAT_SCALE,    maxDeltaLLA[1] )
+        rpc_model.set( Term.HEIGHT_SCALE, maxDeltaLLA[2] )
+
+        rpc_model.set( Term.LON_OFF,    center_lla[0] )
+        rpc_model.set( Term.LAT_OFF,    center_lla[1] )
+        rpc_model.set( Term.HEIGHT_OFF, center_lla[2] )
+
+
         if dem == None:
             rpc_model.set( Term.HEIGHT_SCALE, 0.0 )
 
         #  Perform Least-Squares Fit
         x_coeff = rpc_model.solve_coefficients( fx, x, y, z )
         y_coeff = rpc_model.solve_coefficients( fy, x, y, z )
+
+        rpc_model.set( Term.LINE_NUM_COEFF_1, y_coeff[0] )
+        rpc_model.set( Term.LINE_DEN_COEFF_1, 1.0 )
+        rpc_model.set( Term.SAMP_NUM_COEFF_1, x_coeff[0] )
+        rpc_model.set( Term.SAMP_DEN_COEFF_1, 1.0 )
+
+        for idx in range( 1, 20 ):
+            rpc_model.set( Term.get_line_num(idx-1), y_coeff[idx] )
+            rpc_model.set( Term.get_line_den(idx-1), y_coeff[idx+19] )
+            rpc_model.set( Term.get_sample_num(idx-1), x_coeff[idx] )
+            rpc_model.set( Term.get_sample_den(idx-1), x_coeff[idx+19] )
+
+
+        #  Compute RMSE for errors
+        sumSquareError = 0
+        maxResidual = 0
+        for gcp in gcps:
+
+            npix = rpc_model.world_to_pixel( gcp.coordinate,
+                                             skip_elevation = False,
+                                             logger = logger,
+                                             method = method )
+            
+            delta = npix - gcp.pixel
+            val = math.sqrt( np.dot( delta, delta ) )
+            if val > maxResidual:
+                maxResidual = val
+            sumSquareError += val
+        
+        rms_error = math.sqrt( sumSquareError / len(gcps) )
+
+        rpc_model.set( Term.MAX_ERROR, maxResidual )
+        rpc_model.set( Term.RMS_ERROR, rms_error )
+
+        return rpc_model
 
     def solve_coefficients( self,
                             pix_terms,
@@ -599,24 +662,27 @@ class RPC00B(BaseTransformer):
         idx = 0
 
         r = np.copy( pix_terms )
-        w = np.ones( len( pix_terms ) )
+        w = np.ones( pix_terms.shape )
+        w = np.diag( w )
 
         m = RPC00B.system_of_equations( r,
                                         lon_vals,
                                         lat_vals,
                                         hgt_vals,
                                         logger = logger )
-        logger.info( f'M:\n{m}' )
 
+        iteration = 0
+        coefficients = None
+        temp_coeff = None
         while True:
 
             w2 = np.dot( w, w )
 
-            temp_coeff = pseudoinverse( m.T @ w2 @ m ) @ w2 @ r
+            temp_coeff = pseudoinverse( m.T @ w2 @ m ) @ m.T @ w2 @ r
 
             #  Set denominator matrix
             denominator = np.ones( 20 )
-            for idx in range( 20 ):
+            for idx in range( 19 ):
                 denominator[idx+1] = temp_coeff[20 + idx]
             
             #  Setup weight matrix
@@ -625,8 +691,23 @@ class RPC00B(BaseTransformer):
                                                   lon_vals,
                                                   lat_vals,
                                                   hgt_vals )
-                
+            
+            #  Compute Residuals
+            residual = m.T @ w2 @ ( m @ temp_coeff - r )
+            residual = residual.reshape( residual.shape[0], 1 )
 
+            #  Compute inner product
+            temp_res = residual.T @ residual 
+            residual_value = math.sqrt( temp_res[0,0] )
+            
+            iteration += 1
+
+            if residual_value < 0.00001 or iteration < 10:
+                break
+        
+        coefficients = temp_coeff
+
+        return coefficients
     
     @staticmethod
     def system_of_equations( r,
@@ -689,7 +770,7 @@ class RPC00B(BaseTransformer):
                              f, x, y, z ):
 
         result = np.zeros( f.shape[0] )
-        row = np.zeros( f.shape[0] )
+        row = np.zeros( len( coeffs ) )
 
         for idx in range( f.shape[0] ):
             row[0]  = 1

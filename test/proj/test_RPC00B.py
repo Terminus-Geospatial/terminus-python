@@ -91,7 +91,62 @@ class proj_RPC00B( unittest.TestCase ):
             logger.debug( f'Ref Coord: {ref_coord}, Ref Pixel: {ref_pixel}, Pix Out: {pix}, LLA: {lla}, Pix Delta: {pix_delta}, LLA Delta: {lla_delta}' )
             
 
-    
+    def test_term( self ):
+        '''
+        Verify we can perform lookups on the RPC00B coefficients.
+        '''
+
+        #  I'm being lazy and just enumerating the whole thing
+        terms = { 1: { 0: RPC00B.Term.SAMP_NUM_COEFF_1,  1: RPC00B.Term.SAMP_DEN_COEFF_1,
+                       2: RPC00B.Term.LINE_NUM_COEFF_1,  3: RPC00B.Term.LINE_DEN_COEFF_1 },
+                  2: { 0: RPC00B.Term.SAMP_NUM_COEFF_2,  1: RPC00B.Term.SAMP_DEN_COEFF_2,
+                       2: RPC00B.Term.LINE_NUM_COEFF_2,  3: RPC00B.Term.LINE_DEN_COEFF_2 },
+                  3: { 0: RPC00B.Term.SAMP_NUM_COEFF_3,  1: RPC00B.Term.SAMP_DEN_COEFF_3,
+                       2: RPC00B.Term.LINE_NUM_COEFF_3,  3: RPC00B.Term.LINE_DEN_COEFF_3 },
+                  4: { 0: RPC00B.Term.SAMP_NUM_COEFF_4,  1: RPC00B.Term.SAMP_DEN_COEFF_4,
+                       2: RPC00B.Term.LINE_NUM_COEFF_4,  3: RPC00B.Term.LINE_DEN_COEFF_4 },
+                  5: { 0: RPC00B.Term.SAMP_NUM_COEFF_5,  1: RPC00B.Term.SAMP_DEN_COEFF_5,
+                       2: RPC00B.Term.LINE_NUM_COEFF_5,  3: RPC00B.Term.LINE_DEN_COEFF_5 },
+                  6: { 0: RPC00B.Term.SAMP_NUM_COEFF_6,  1: RPC00B.Term.SAMP_DEN_COEFF_6,
+                       2: RPC00B.Term.LINE_NUM_COEFF_6,  3: RPC00B.Term.LINE_DEN_COEFF_6 },
+                  7: { 0: RPC00B.Term.SAMP_NUM_COEFF_7,  1: RPC00B.Term.SAMP_DEN_COEFF_7,
+                       2: RPC00B.Term.LINE_NUM_COEFF_7,  3: RPC00B.Term.LINE_DEN_COEFF_7 },
+                  8: { 0: RPC00B.Term.SAMP_NUM_COEFF_8,  1: RPC00B.Term.SAMP_DEN_COEFF_8,
+                       2: RPC00B.Term.LINE_NUM_COEFF_8,  3: RPC00B.Term.LINE_DEN_COEFF_8 },
+                  9: { 0: RPC00B.Term.SAMP_NUM_COEFF_9,  1: RPC00B.Term.SAMP_DEN_COEFF_9,
+                       2: RPC00B.Term.LINE_NUM_COEFF_9,  3: RPC00B.Term.LINE_DEN_COEFF_9 },
+                 10: { 0: RPC00B.Term.SAMP_NUM_COEFF_10, 1: RPC00B.Term.SAMP_DEN_COEFF_10,
+                       2: RPC00B.Term.LINE_NUM_COEFF_10, 3: RPC00B.Term.LINE_DEN_COEFF_10 },
+                 11: { 0: RPC00B.Term.SAMP_NUM_COEFF_11, 1: RPC00B.Term.SAMP_DEN_COEFF_11,
+                       2: RPC00B.Term.LINE_NUM_COEFF_11, 3: RPC00B.Term.LINE_DEN_COEFF_11 },
+                 12: { 0: RPC00B.Term.SAMP_NUM_COEFF_12, 1: RPC00B.Term.SAMP_DEN_COEFF_12,
+                       2: RPC00B.Term.LINE_NUM_COEFF_12, 3: RPC00B.Term.LINE_DEN_COEFF_12 },
+                 13: { 0: RPC00B.Term.SAMP_NUM_COEFF_13, 1: RPC00B.Term.SAMP_DEN_COEFF_13,
+                       2: RPC00B.Term.LINE_NUM_COEFF_13, 3: RPC00B.Term.LINE_DEN_COEFF_13 },
+                 14: { 0: RPC00B.Term.SAMP_NUM_COEFF_14, 1: RPC00B.Term.SAMP_DEN_COEFF_14,
+                       2: RPC00B.Term.LINE_NUM_COEFF_14, 3: RPC00B.Term.LINE_DEN_COEFF_14 },
+                 15: { 0: RPC00B.Term.SAMP_NUM_COEFF_15, 1: RPC00B.Term.SAMP_DEN_COEFF_15,
+                       2: RPC00B.Term.LINE_NUM_COEFF_15, 3: RPC00B.Term.LINE_DEN_COEFF_15 },
+                 16: { 0: RPC00B.Term.SAMP_NUM_COEFF_16, 1: RPC00B.Term.SAMP_DEN_COEFF_16,
+                       2: RPC00B.Term.LINE_NUM_COEFF_16, 3: RPC00B.Term.LINE_DEN_COEFF_16 },
+                 17: { 0: RPC00B.Term.SAMP_NUM_COEFF_17, 1: RPC00B.Term.SAMP_DEN_COEFF_17,
+                       2: RPC00B.Term.LINE_NUM_COEFF_17, 3: RPC00B.Term.LINE_DEN_COEFF_17 },
+                 18: { 0: RPC00B.Term.SAMP_NUM_COEFF_18, 1: RPC00B.Term.SAMP_DEN_COEFF_18,
+                       2: RPC00B.Term.LINE_NUM_COEFF_18, 3: RPC00B.Term.LINE_DEN_COEFF_18 },
+                 19: { 0: RPC00B.Term.SAMP_NUM_COEFF_19, 1: RPC00B.Term.SAMP_DEN_COEFF_19,
+                       2: RPC00B.Term.LINE_NUM_COEFF_19, 3: RPC00B.Term.LINE_DEN_COEFF_19 },
+                 20: { 0: RPC00B.Term.SAMP_NUM_COEFF_20, 1: RPC00B.Term.SAMP_DEN_COEFF_20,
+                       2: RPC00B.Term.LINE_NUM_COEFF_20, 3: RPC00B.Term.LINE_DEN_COEFF_20 } }
+        
+        for x in range( 1, 21 ):
+
+            self.assertEqual( RPC00B.Term.get_sample_num( x ), terms[x][0] )
+            self.assertEqual( RPC00B.Term.get_sample_den( x ), terms[x][1] )
+            self.assertEqual( RPC00B.Term.get_line_num( x ), terms[x][2] )
+            self.assertEqual( RPC00B.Term.get_line_den( x ), terms[x][3] )
+
+
+
     def test_planet1(self):
         logger = logging.getLogger( 'test_RPC00B.test_planet1' )
 
@@ -122,7 +177,6 @@ class proj_RPC00B( unittest.TestCase ):
 
     def test_planet1_solver_dem(self):
 
-        return
         logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_dem' )
         logger.debug( 'Logger Initialized' )
 
@@ -174,11 +228,41 @@ class proj_RPC00B( unittest.TestCase ):
                 kml_points.append( new_point )
 
         #  Solve for model
-        logger.info( 'Solving RPC00B model' )
-        model = RPC00B.RPC00B.solve( gcps,
-                                     dem    = self.dem,
-                                     method = method,
-                                     logger = logger )
+        logger.debug( 'Solving RPC00B model' )
+        new_model = RPC00B.RPC00B.solve( gcps,
+                                         dem    = self.dem,
+                                         method = method,
+                                         logger = logger )
+        logger.info( new_model )
+
+        #  Verify the model
+        res_points = []
+        counter = 0
+        for r in range( 0, img_size[1], 500 ):
+            for c in range( 0, img_size[0], 500 ):
+
+                # Pixel value
+                pixel = np.array( [ c, r ], dtype = np.float64 )
+
+                #  World coordinate
+                lla = new_model.pixel_to_world( pixel,
+                                                dem_model = self.dem,
+                                                logger = logger,
+                                                method = method )
+
+                new_point = Placemark( name = f'GCP {index}',
+                                       styleUrl='#mainStyle',
+                                       geometry = Point( lat  = lla[1],
+                                                         lon  = lla[0],
+                                                         elev = lla[2] ) )
+                res_points.append( new_point )
+
+                self.assertLess( np.sum( np.abs( lla - gcps[counter].coordinate ) ), 0.0001 )
+
+                counter += 1
+
+
+
 
         # Write Results to KML
         writer = Writer()
@@ -186,14 +270,18 @@ class proj_RPC00B( unittest.TestCase ):
         style = Style( id = 'mainStyle',
                        label_style = Label_Style( color = 'ff0000ff' ) )
 
-        folder = Folder( 'pixel2world',
+        folder = Folder( 'loaded_model',
                          features=kml_points )
         writer.add_node( folder )
+
+        folder = Folder( 'solution',
+                         features=res_points )
+        writer.add_node( folder )
+
         writer.write( f'output_1_method_{method}' )
     
     def test_planet1_solver_flat(self):
 
-        return
         logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_flat' )
         logger.debug( 'Logger Initialized' )
 

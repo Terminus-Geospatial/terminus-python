@@ -32,5 +32,5 @@ class math_solver( unittest.TestCase ):
         
         A1_inv = pseudoinverse( A1 )        
         A1_exp = np.linalg.pinv( A1 )
-        self.assertLess( np.sum( np.abs( A1_inv - A1_exp ) ) )
+        self.assertLess( np.sum( np.abs( A1_inv - A1_exp ) ), 0.00001 )
         
