@@ -719,38 +719,5 @@ class RPC00B(BaseTransformer):
 
         return rpc_model
 
-    @staticmethod
-    def fitness( self, C, model: RPC00B, fx, fy, x, y, z, method ):
-
-        #  Get the core variables we are fixed on
-        lon_off = model.get( Term.LON_OFF )
-        lat_off = model.get( Term.LAT_OFF )
-        hgt_off = model.get( Term.HEIGHT_OFF )
-
-        lon_scale = model.get( Term.LON_SCALE )
-        lat_scale = model.get( Term.LAT_SCALE )
-        hgt_scale = model.get( Term.HEIGHT_SCALE )
-
-        #  Make sure al inputs are the same size
-        assert( len(fx) == len(fy) )
-        assert( len(fx) == len(x) )
-        assert( len(fx) == len(y) )
-        assert( len(fx) == len(z) )
-
-        #  Iterate over each GCP
-        for idx in range( len( fx ) ):
-
-            plh_vec = self.get_plh_vector( P = y[idx],
-                                           L = x[idx],
-                                           H = z[idx],
-                                           method = method )
-
-            r_n_n = np.dot( self.get_line_numerator_coefficients(),     plh_vec )
-            r_n_d = np.dot( self.get_line_denominator_coefficients(),   plh_vec )
-            c_n_n = np.dot( self.get_sample_numerator_coefficients(),   plh_vec )
-            c_n_d = np.dot( self.get_sample_denominator_coefficients(), plh_vec )
-
-            gcp_lla = np.array( [ (c_n_n/c_n_d) * self.get(Term.SAMP_SCALE) + self.get(Term.SAMP_OFF),
-                                  (r_n_n/r_n_d) * self.get(Term.LINE_SCALE) + self.get(Term.LINE_OFF) ],
-                                dtype = np.float64 )
+    
             

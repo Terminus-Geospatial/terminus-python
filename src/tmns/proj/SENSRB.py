@@ -174,11 +174,8 @@ class SENSRB(BaseTransformer):
                 self.data[k] = data[k]
 
     
-    def get( self, key, type = None ):
-        if type == None:
-            return self.data[key]
-        else:
-            return type(self.data[key])
+    def get( self, key ):
+        return self.data[key]
 
     def set( self, key, value ):
         self.data[key] = value
@@ -197,8 +194,8 @@ class SENSRB(BaseTransformer):
 
     
     def image_size_pixels(self):
-        return np.array( [ self.get(Term.SAMP_SCALE)*2,
-                           self.get(Term.LINE_SCALE)*2],
+        return np.array( [ self.get(Term.COLUMN_COUNT),
+                           self.get(Term.ROW_COUNT) ],
                          dtype = np.float64 )
 
     
@@ -209,12 +206,35 @@ class SENSRB(BaseTransformer):
         if logger == None:
             logger = logging.getLogger( 'SENSRB.world_to_pixel' )
 
-        #  Get the number of terms
-        n_terms = self.get( Term.TRANSFORM_PARAMS, int )
+        # Get the terms
+        pix = None
+        terms = self.get_transform_array()
 
-        raise NotImplementedError()
+        if len(terms) == 2:
+            raise NotImplementedError()
+        elif len(terms) == 4:
+            raise NotImplementedError()
+        elif len(terms) == 5:
+            raise NotImplementedError()
+        
+        elif len(terms) == 6:
+            
+            A = np.array( [ [ terms[0], terms[1], terms[2]],
+                            [ terms[3], terms[4], terms[5]],
+                            [     0   ,     0   ,     1   ] ],
+                            dtype = np.float64 )
 
+            A_inv = np.linalg.pinv( A )
+            pix = A_inv @ np.array( [ [ coord[0] ],
+                                      [ coord[1] ],
+                                      [ coord[2] ] ])
 
+        elif len(terms) == 8:
+            raise NotImplementedError()
+        else:
+            raise Exception( f'Unsupported number of terms: {len(terms)}' )
+
+        return pix
     
     def pixel_to_world( self,
                         pixel,
@@ -227,19 +247,82 @@ class SENSRB(BaseTransformer):
         if logger == None:
             logger = logging.getLogger( 'SENSRB.pixel_to_world' )
 
-        
-        
+        xform = self.get_transform_array()
+        coord = None
 
+        if len(xform) == 0:
+            return pixel
+        
+        elif len(xform) == 2:
+            coord = pixel + xform
+        
+        elif len(xform) == 4:
+            s = xform[0]
+            a = xform[1]
+            dx = xform[2]
+            dy = xform[3]
+
+            M = np.array( [[ s * math.cos(a), s * math.sin(a)],
+                           [-s * math.sin(a), s * math.cos(a)]],
+                           dtype = np.float64 )
+            coord = M @ pixel.resize(1,2) + np.array( [[dx],[dy]])
+        
+        elif len(xform) == 5:
+            s1 = xform[0]
+            s2 = xform[1]
+            a  = xform[2]
+            dx = xform[3]
+            dy = xform[4]
+
+            S = np.array( [[s1, 0], [0, s2]] )
+            M = np.array( [[ math.cos(a), math.sin(a)],
+                           [-math.sin(a), math.cos(a)]],
+                           dtype = np.float64 )
+            coord = S @ M @ pixel.reshape(2,1) + np.array( [[dx],[dy]])
+
+        elif len(xform) == 6:
+            S = np.array( [[ xform[0], xform[1] ], 
+                           [ xform[2], xform[3] ]] )
+        
+            print(S)
+            print(pixel.reshape(2,1))
+            coord = S @ pixel.reshape(1,2) + np.array( [[xform[4]],[xform[5]]])
+            print( f'coord: {coord}' )
+        
+        elif len(xform) == 8:
+            
+            Mx = np.array( [[ xform[0], xform[1], xform[2] ], 
+                            [ xform[6], xform[7], 1 ]] )
+            My = np.array( [[ xform[3], xform[4], xform[5] ], 
+                            [ xform[6], xform[7], 1 ]] )
+        
+            raise NotImplementedError()
+            return S @ pixel.resize(1,2) + np.array( [[dx],[dy]])
+
+        else:
+            raise Exception( f'Unsupported Number of Coefficients: {len(xform)}' )
+
+        coord = coord.resize( 3, 1 )
+        if dem_model != None:
+            coord[2] = dem_model.elevation_meters( coord )
+        return coord
     
+
     def __str__(self):
         output  =  'SENSRB:\n'
         for k in self.data.keys():
             output += f'   - {k.name}:  {self.data[k]}\n'
         return output
-
     
-    
-
+    def get_transform_array(self):
+        '''
+        Return the transform as an array
+        '''
+        n_params = self.get( Term.TRANSFORM_PARAMS )
+        params = []
+        for x in range( n_params ):
+            params.append( self.get( Term(Term.TRANSFORM_PARAM_1.value + x) ) )
+        return params
     
     @staticmethod
     def defaults():
@@ -257,20 +340,7 @@ class SENSRB(BaseTransformer):
 
         model = SENSRB()
         
-        model.set( Term.SAMP_OFF,     center_pixel[0] )
-        model.set( Term.SAMP_SCALE,   image_width / 2.0 )
-        
-        model.set( Term.LINE_OFF,     center_pixel[1] )
-        model.set( Term.LINE_SCALE,   image_height / 2.0 )
-        
-        model.set( Term.LON_OFF,      center_lla[0] )
-        model.set( Term.LON_SCALE,    max_delta_lla[0] )
 
-        model.set( Term.LON_OFF,      center_lla[1] )
-        model.set( Term.LAT_SCALE,    max_delta_lla[1] )
-
-        model.set( Term.HEIGHT_OFF,   center_lla[2] )
-        model.set( Term.HEIGHT_SCALE, max_delta_lla[2] )
         
         return model
     
@@ -278,208 +348,44 @@ class SENSRB(BaseTransformer):
     @staticmethod
     def solve( gcps: list[GCP],
                image_size = None,
-               dem = None,
-               method = 'B',
-               logger = None,
-               cheat_x_num = None,
-               cheat_x_den = None,
-               cheat_y_num = None,
-               cheat_y_den = None ):
-        '''
-        Todo:  Use a better spread function to better model min/max. 
-               How does our "spread" method work across the equator?
-
-        The "Cheat" coefficient sets allow verification of this API if you want to hard-code the results
-        '''
+               logger = None ):
         
         if logger == None:
-            logger = logging.getLogger( 'RPC00B.solve' )
+            logger = logging.getLogger( 'SENSRB.solve' )
 
-        # Determine image bounds from points
-        image_bbox = None
-        if image_size is None:
-            image_bbox = Rectangle( point = gcps[0].pixel )
-        else:
-            image_bbox = Rectangle( point = np.array( [0,0], dtype = np.float64 ), 
-                                    size  = image_size )
-            
-        # Determine scene bounds from points
-        lla_bbox = Rectangle( np.copy( gcps[0].coordinate ) )
-        for gcp in gcps[1:]:
-            image_bbox.add_point( gcp.pixel )
-            lla_bbox.add_point( np.copy( gcp.coordinate ) )
-
-        logger.debug( f'Image BBox: {image_bbox}' )
-        logger.debug( f'Coord BBox: {lla_bbox}' )
-        
-        #  Compute the optimal center image point
-        center_pix = None
-        if image_size is None:
-            center_pix = image_bbox.mean_point()
-        else:
-            center_pix = image_size * 0.5
-        
-        #  Solve the center coordinate point
-        center_lla = lla_bbox.mean_point()
-
-        # Storage after we normalize
-        fx = np.zeros( len( gcps ) )
-        fy = np.zeros( len( gcps ) )
-        
-        x = np.zeros( len( gcps ) )
-        y = np.zeros( len( gcps ) )
-        z = np.zeros( len( gcps ) )
-        
-        # We need to know the direction of flow for each axis so we can estimate 
-        # Scale properly
-        maxDeltaLLA = np.zeros( len( center_lla ) )
-        minPnt_pair = None
-        maxPnt_pair = None
-
-        #------------------------------------------#
-        #-        Normalize all coordinates       -#
-        #------------------------------------------#
-        for idx in range( len( gcps ) ):
-
-            #  First point only
-            if minPnt_pair == None:
-                minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-                maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-            
-            #  Check if min point  (likely pixel (0,0) )
-            if np.linalg.norm( minPnt_pair[0] ) > np.linalg.norm( gcps[idx].pixel ):
-                minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-                
-            #  Check if max point  (likely pixel (cols,rows) )
-            if np.linalg.norm( maxPnt_pair[0] ) < np.linalg.norm( gcps[idx].pixel ):
-                maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-
-            #  Normalize geographic coordinates
-            d_lla = gcps[idx].coordinate - center_lla
-            
-            x[idx] = d_lla[0]
-            y[idx] = d_lla[1]
-            z[idx] = d_lla[2]
-
-            #  Normalize pixel coordinates
-            fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (image_bbox.size[0] / 2.0)
-            fy[idx] = (gcps[idx].pixel[1] - center_pix[1]) / (image_bbox.size[1] / 2.0)
-
-            #  Update the delta for the geographic coordinates
-            if abs( d_lla[0] ) > maxDeltaLLA[0]:
-                maxDeltaLLA[0] = abs( d_lla[0] )
-
-            if abs( d_lla[1] ) > maxDeltaLLA[1]:
-                maxDeltaLLA[1] = abs( d_lla[1] )
-            
-            if abs( d_lla[2] ) > maxDeltaLLA[2]:
-                maxDeltaLLA[2] = abs( gcps[idx].coordinate[2] )
-        
-        #  Solve direction
-        pnt_dlt = (maxPnt_pair[1] - minPnt_pair[1])
-        pnt_mag = np.ones( len( pnt_dlt ) )
-        for idx in range( len( pnt_dlt ) ):
-            if pnt_dlt[idx] < 0:
-                maxDeltaLLA[idx] *= -1
-        logger.debug( f'Point Delta: {pnt_dlt}, Mag: {pnt_mag}' )
-
-        for idx in range( len( gcps ) ):
-
-            x[idx] /= maxDeltaLLA[0]
-            y[idx] /= maxDeltaLLA[1]
-            z[idx] /= maxDeltaLLA[2]
-
-        #--------------------------------------------------------------------------#
-        #-        Create the new model and solve for each pixel row/col set       -#
-        #--------------------------------------------------------------------------#
-        rpc_model = RPC00B()
-        rpc_model.set( Term.SAMP_OFF,   center_pix[0] )
-        rpc_model.set( Term.LINE_OFF,   center_pix[1] )
-
-        rpc_model.set( Term.SAMP_SCALE, image_bbox.size[0] / 2 )
-        rpc_model.set( Term.LINE_SCALE, image_bbox.size[1] / 2 )
-        
-        rpc_model.set( Term.LON_SCALE,    maxDeltaLLA[0] )
-        rpc_model.set( Term.LAT_SCALE,    maxDeltaLLA[1] )
-        rpc_model.set( Term.HEIGHT_SCALE, maxDeltaLLA[2] )
-
-        rpc_model.set( Term.LON_OFF,    center_lla[0] )
-        rpc_model.set( Term.LAT_OFF,    center_lla[1] )
-        rpc_model.set( Term.HEIGHT_OFF, center_lla[2] )
-
-        if dem == None:
-            rpc_model.set( Term.HEIGHT_SCALE, 0.0 )
-
-
-        #  Perform Least-Squares Fit
-        samp_num_coeffs = cheat_x_num
-        samp_den_coeffs = cheat_x_den
-        line_num_coeffs = cheat_y_num
-        line_den_coeffs = cheat_y_den
-
-        #  Update the coefficients
-        for x in range( 20 ):
-            rpc_model.set( Term.get_sample_num( x + 1 ), samp_num_coeffs[x] )
-            rpc_model.set( Term.get_sample_den( x + 1 ), samp_den_coeffs[x] )
-            rpc_model.set( Term.get_line_num( x + 1 ),   line_num_coeffs[x] )
-            rpc_model.set( Term.get_line_den( x + 1 ),   line_den_coeffs[x] )
-
-
-        #  Compute RMSE for errors
-        sumSquareError = 0
-        maxResidual = 0
+        #  Primary Matrix
+        A_pnts = []
+        Bx_pnts = []
+        By_pnts = []
         for gcp in gcps:
+            l = list(gcp.pixel)
+            l.append( 1 )
+            A_pnts.append( l )
 
-            npix = rpc_model.world_to_pixel( gcp.coordinate,
-                                             skip_elevation = False,
-                                             logger = logger,
-                                             method = method )
-            
-            delta = npix - gcp.pixel
-            val = math.sqrt( np.dot( delta, delta ) )
-            if val > maxResidual:
-                maxResidual = val
-            sumSquareError += val
+            Bx_pnts.append( [gcp.coordinate[0]] )
+            By_pnts.append( [gcp.coordinate[1]] )
+
+        A = np.array( A_pnts )
+        A_inv = np.linalg.pinv( A )
         
-        rms_error = math.sqrt( sumSquareError / len(gcps) )
+        #  Result Matrices
+        B_x = np.array( Bx_pnts )
+        B_y = np.array( By_pnts )
+        
+        coeffA = A_inv @ B_x
+        coeffB = A_inv @ B_y
+        
+        new_model = SENSRB()
 
-        rpc_model.set( Term.MAX_ERROR, maxResidual )
-        rpc_model.set( Term.RMS_ERROR, rms_error )
+        new_model.set( Term.COLUMN_COUNT, image_size[0] )
+        new_model.set( Term.ROW_COUNT, image_size[1] )
 
-        return rpc_model
+        new_model.set( Term.TRANSFORM_PARAMS, len(coeffA) + len(coeffB) )
+        new_model.set( Term.TRANSFORM_PARAM_1, coeffA[0] )
+        new_model.set( Term.TRANSFORM_PARAM_2, coeffA[1] )
+        new_model.set( Term.TRANSFORM_PARAM_3, coeffB[0] )
+        new_model.set( Term.TRANSFORM_PARAM_4, coeffB[1] )
+        new_model.set( Term.TRANSFORM_PARAM_5, coeffA[2] )
+        new_model.set( Term.TRANSFORM_PARAM_6, coeffB[2] )
 
-    @staticmethod
-    def fitness( self, C, model: RPC00B, fx, fy, x, y, z, method ):
-
-        #  Get the core variables we are fixed on
-        lon_off = model.get( Term.LON_OFF )
-        lat_off = model.get( Term.LAT_OFF )
-        hgt_off = model.get( Term.HEIGHT_OFF )
-
-        lon_scale = model.get( Term.LON_SCALE )
-        lat_scale = model.get( Term.LAT_SCALE )
-        hgt_scale = model.get( Term.HEIGHT_SCALE )
-
-        #  Make sure al inputs are the same size
-        assert( len(fx) == len(fy) )
-        assert( len(fx) == len(x) )
-        assert( len(fx) == len(y) )
-        assert( len(fx) == len(z) )
-
-        #  Iterate over each GCP
-        for idx in range( len( fx ) ):
-
-            plh_vec = self.get_plh_vector( P = y[idx],
-                                           L = x[idx],
-                                           H = z[idx],
-                                           method = method )
-
-            r_n_n = np.dot( self.get_line_numerator_coefficients(),     plh_vec )
-            r_n_d = np.dot( self.get_line_denominator_coefficients(),   plh_vec )
-            c_n_n = np.dot( self.get_sample_numerator_coefficients(),   plh_vec )
-            c_n_d = np.dot( self.get_sample_denominator_coefficients(), plh_vec )
-
-            gcp_lla = np.array( [ (c_n_n/c_n_d) * self.get(Term.SAMP_SCALE) + self.get(Term.SAMP_OFF),
-                                  (r_n_n/r_n_d) * self.get(Term.LINE_SCALE) + self.get(Term.LINE_OFF) ],
-                                dtype = np.float64 )
-            
+        return new_model
