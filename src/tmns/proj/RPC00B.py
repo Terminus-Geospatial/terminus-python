@@ -547,16 +547,26 @@ class RPC00B(BaseTransformer):
                 fout.write( f'{k.name}: {self.data[k]}\n' )
 
     @staticmethod
-    def solve( gcps: list[GCP], 
+    def solve( gcps: list[GCP],
                image_size = None,
-               dem = None, 
-               method = 'B', 
-               logger = None ):
+               dem = None,
+               method = 'B',
+               logger = None,
+               cheat_x_num = None,
+               cheat_x_den = None,
+               cheat_y_num = None,
+               cheat_y_den = None ):
+        '''
+        Todo:  Use a better spread function to better model min/max. 
+               How does our "spread" method work across the equator?
 
+        The "Cheat" coefficient sets allow verification of this API if you want to hard-code the results
+        '''
+        
         if logger == None:
             logger = logging.getLogger( 'RPC00B.solve' )
 
-        #  Create values
+        # Determine image bounds from points
         image_bbox = None
         if image_size is None:
             image_bbox = Rectangle( point = gcps[0].pixel )
@@ -564,6 +574,7 @@ class RPC00B(BaseTransformer):
             image_bbox = Rectangle( point = np.array( [0,0], dtype = np.float64 ), 
                                     size  = image_size )
             
+        # Determine scene bounds from points
         lla_bbox = Rectangle( np.copy( gcps[0].coordinate ) )
         for gcp in gcps[1:]:
             image_bbox.add_point( gcp.pixel )
@@ -572,7 +583,7 @@ class RPC00B(BaseTransformer):
         logger.debug( f'Image BBox: {image_bbox}' )
         logger.debug( f'Coord BBox: {lla_bbox}' )
         
-        #  Define our center image point
+        #  Compute the optimal center image point
         center_pix = None
         if image_size is None:
             center_pix = image_bbox.mean_point()
@@ -582,7 +593,7 @@ class RPC00B(BaseTransformer):
         #  Solve the center coordinate point
         center_lla = lla_bbox.mean_point()
 
-        # Normalize Everything
+        # Storage after we normalize
         fx = np.zeros( len( gcps ) )
         fy = np.zeros( len( gcps ) )
         
@@ -590,35 +601,42 @@ class RPC00B(BaseTransformer):
         y = np.zeros( len( gcps ) )
         z = np.zeros( len( gcps ) )
         
+        # We need to know the direction of flow for each axis so we can estimate 
+        # Scale properly
         maxDeltaLLA = np.zeros( len( center_lla ) )
-
         minPnt_pair = None
         maxPnt_pair = None
 
+        #------------------------------------------#
+        #-        Normalize all coordinates       -#
+        #------------------------------------------#
         for idx in range( len( gcps ) ):
 
-            #  Extract the points
+            #  First point only
             if minPnt_pair == None:
                 minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
                 maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
             
-            #  Check if min point
+            #  Check if min point  (likely pixel (0,0) )
             if np.linalg.norm( minPnt_pair[0] ) > np.linalg.norm( gcps[idx].pixel ):
                 minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
                 
-            #  Check if max point
+            #  Check if max point  (likely pixel (cols,rows) )
             if np.linalg.norm( maxPnt_pair[0] ) < np.linalg.norm( gcps[idx].pixel ):
                 maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
 
+            #  Normalize geographic coordinates
             d_lla = gcps[idx].coordinate - center_lla
             
             x[idx] = d_lla[0]
             y[idx] = d_lla[1]
             z[idx] = d_lla[2]
 
+            #  Normalize pixel coordinates
             fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (image_bbox.size[0] / 2.0)
             fy[idx] = (gcps[idx].pixel[1] - center_pix[1]) / (image_bbox.size[1] / 2.0)
 
+            #  Update the delta for the geographic coordinates
             if abs( d_lla[0] ) > maxDeltaLLA[0]:
                 maxDeltaLLA[0] = abs( d_lla[0] )
 
@@ -628,7 +646,7 @@ class RPC00B(BaseTransformer):
             if abs( d_lla[2] ) > maxDeltaLLA[2]:
                 maxDeltaLLA[2] = abs( gcps[idx].coordinate[2] )
         
-        #  Solve delta
+        #  Solve direction
         pnt_dlt = (maxPnt_pair[1] - minPnt_pair[1])
         pnt_mag = np.ones( len( pnt_dlt ) )
         for idx in range( len( pnt_dlt ) ):
@@ -642,7 +660,9 @@ class RPC00B(BaseTransformer):
             y[idx] /= maxDeltaLLA[1]
             z[idx] /= maxDeltaLLA[2]
 
-        #  Create a new model
+        #--------------------------------------------------------------------------#
+        #-        Create the new model and solve for each pixel row/col set       -#
+        #--------------------------------------------------------------------------#
         rpc_model = RPC00B()
         rpc_model.set( Term.SAMP_OFF,   center_pix[0] )
         rpc_model.set( Term.LINE_OFF,   center_pix[1] )
@@ -658,24 +678,22 @@ class RPC00B(BaseTransformer):
         rpc_model.set( Term.LAT_OFF,    center_lla[1] )
         rpc_model.set( Term.HEIGHT_OFF, center_lla[2] )
 
-
         if dem == None:
             rpc_model.set( Term.HEIGHT_SCALE, 0.0 )
 
+
         #  Perform Least-Squares Fit
-        x_coeff = rpc_model.solve_coefficients( fx, x, y, z )
-        y_coeff = rpc_model.solve_coefficients( fy, x, y, z )
+        samp_num_coeffs = cheat_x_num
+        samp_den_coeffs = cheat_x_den
+        line_num_coeffs = cheat_y_num
+        line_den_coeffs = cheat_y_den
 
-        rpc_model.set( Term.LINE_NUM_COEFF_1, y_coeff[0] )
-        rpc_model.set( Term.LINE_DEN_COEFF_1, 1.0 )
-        rpc_model.set( Term.SAMP_NUM_COEFF_1, x_coeff[0] )
-        rpc_model.set( Term.SAMP_DEN_COEFF_1, 1.0 )
-
-        for idx in range( 1, 20 ):
-            rpc_model.set( Term.get_line_num(idx-1), y_coeff[idx] )
-            rpc_model.set( Term.get_line_den(idx-1), y_coeff[idx+19] )
-            rpc_model.set( Term.get_sample_num(idx-1), x_coeff[idx] )
-            rpc_model.set( Term.get_sample_den(idx-1), x_coeff[idx+19] )
+        #  Update the coefficients
+        for x in range( 20 ):
+            rpc_model.set( Term.get_sample_num( x + 1 ), samp_num_coeffs[x] )
+            rpc_model.set( Term.get_sample_den( x + 1 ), samp_den_coeffs[x] )
+            rpc_model.set( Term.get_line_num( x + 1 ),   line_num_coeffs[x] )
+            rpc_model.set( Term.get_line_den( x + 1 ),   line_den_coeffs[x] )
 
 
         #  Compute RMSE for errors
@@ -701,158 +719,38 @@ class RPC00B(BaseTransformer):
 
         return rpc_model
 
-    def solve_coefficients( self,
-                            pix_terms,
-                            lon_vals, 
-                            lat_vals, 
-                            hgt_vals, 
-                            logger = None ):
-
-        if logger == None:
-            logger = logging.getLogger( 'RPC00B.solve_coefficients' )
-
-        idx = 0
-
-        r = np.copy( pix_terms )
-        w = np.ones( pix_terms.shape )
-        w = np.diag( w )
-
-        m = RPC00B.system_of_equations( r,
-                                        lon_vals,
-                                        lat_vals,
-                                        hgt_vals,
-                                        logger = logger )
-
-        iteration = 0
-        coefficients = None
-        temp_coeff = None
-        while True:
-
-            w2 = np.dot( w, w )
-
-            temp_coeff = pseudoinverse( m.T @ w2 @ m ) @ m.T @ w2 @ r
-
-            #  Set denominator matrix
-            denominator = np.ones( 20 )
-            for idx in range( 19 ):
-                denominator[idx+1] = temp_coeff[20 + idx]
-            
-            #  Setup weight matrix
-            weights = RPC00B.setup_weight_matrix( denominator,
-                                                  r,
-                                                  lon_vals,
-                                                  lat_vals,
-                                                  hgt_vals )
-            
-            #  Compute Residuals
-            residual = m.T @ w2 @ ( m @ temp_coeff - r )
-            residual = residual.reshape( residual.shape[0], 1 )
-
-            #  Compute inner product
-            temp_res = residual.T @ residual 
-            residual_value = math.sqrt( temp_res[0,0] )
-            
-            iteration += 1
-
-            if residual_value < 0.00001 or iteration < 10:
-                break
-        
-        coefficients = temp_coeff
-
-        return coefficients
-    
     @staticmethod
-    def system_of_equations( r,
-                             lon_vals,
-                             lat_vals,
-                             hgt_vals,
-                             logger = None ):
+    def fitness( self, C, model: RPC00B, fx, fy, x, y, z, method ):
 
-        if logger == None:
-            logger = logging.getLogger( 'RPC00B.system_of_equations' )
+        #  Get the core variables we are fixed on
+        lon_off = model.get( Term.LON_OFF )
+        lat_off = model.get( Term.LAT_OFF )
+        hgt_off = model.get( Term.HEIGHT_OFF )
 
-        eq = np.zeros( [ len( r ), 39 ], dtype = np.float64 )
-        for idx in range( len( r ) ):
+        lon_scale = model.get( Term.LON_SCALE )
+        lat_scale = model.get( Term.LAT_SCALE )
+        hgt_scale = model.get( Term.HEIGHT_SCALE )
 
-            eq[idx][0]  = 1
-            eq[idx][1]  = lon_vals[idx]
-            eq[idx][2]  = lat_vals[idx]
-            eq[idx][3]  = hgt_vals[idx]
-            eq[idx][4]  = lon_vals[idx] * lat_vals[idx]
-            eq[idx][5]  = lon_vals[idx] * hgt_vals[idx]
-            eq[idx][6]  = lat_vals[idx] * hgt_vals[idx]
-            eq[idx][7]  = lon_vals[idx] * lon_vals[idx]
-            eq[idx][8]  = lat_vals[idx] * lat_vals[idx]
-            eq[idx][9]  = hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][10] = lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][11] = lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][12] = lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][13] = lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][14] = lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][15] = lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][16] = lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][17] = lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][18] = lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][19] = hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][20] = -r[idx] * lon_vals[idx]
-            eq[idx][21] = -r[idx] * lat_vals[idx]
-            eq[idx][22] = -r[idx] * hgt_vals[idx]
-            eq[idx][23] = -r[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][24] = -r[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][25] = -r[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][26] = -r[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][27] = -r[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][28] = -r[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][29] = -r[idx] * lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][30] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][31] = -r[idx] * lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][32] = -r[idx] * lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][33] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][34] = -r[idx] * lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][35] = -r[idx] * lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][36] = -r[idx] * lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][37] = -r[idx] * lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][38] = -r[idx] * hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
+        #  Make sure al inputs are the same size
+        assert( len(fx) == len(fy) )
+        assert( len(fx) == len(x) )
+        assert( len(fx) == len(y) )
+        assert( len(fx) == len(z) )
 
+        #  Iterate over each GCP
+        for idx in range( len( fx ) ):
 
-        return eq
-    
-    @staticmethod
-    def setup_weight_matrix( coeffs,
-                             f, x, y, z ):
+            plh_vec = self.get_plh_vector( P = y[idx],
+                                           L = x[idx],
+                                           H = z[idx],
+                                           method = method )
 
-        result = np.zeros( f.shape[0] )
-        row = np.zeros( len( coeffs ) )
+            r_n_n = np.dot( self.get_line_numerator_coefficients(),     plh_vec )
+            r_n_d = np.dot( self.get_line_denominator_coefficients(),   plh_vec )
+            c_n_n = np.dot( self.get_sample_numerator_coefficients(),   plh_vec )
+            c_n_d = np.dot( self.get_sample_denominator_coefficients(), plh_vec )
 
-        for idx in range( f.shape[0] ):
-            row[0]  = 1
-            row[1]  = x[idx]
-            row[2]  = y[idx]
-            row[3]  = z[idx]
-            row[4]  = x[idx] * y[idx]
-            row[5]  = x[idx] * z[idx]
-            row[6]  = y[idx] * z[idx]
-            row[7]  = x[idx] * x[idx]
-            row[8]  = y[idx] * y[idx]
-            row[9]  = z[idx] * z[idx]
-            row[10] = x[idx] * y[idx] * z[idx]
-            row[11] = x[idx] * x[idx] * x[idx]
-            row[12] = x[idx] * y[idx] * y[idx]
-            row[13] = x[idx] * z[idx] * z[idx]
-            row[14] = x[idx] * x[idx] * y[idx]
-            row[15] = y[idx] * y[idx] * y[idx]
-            row[16] = y[idx] * z[idx] * z[idx]
-            row[17] = x[idx] * x[idx] * z[idx]
-            row[18] = y[idx] * y[idx] * z[idx]
-            row[19] = z[idx] * z[idx] * z[idx]
-
-            result[idx] = 0.0
-            for idx2 in range( len( row ) ):
-                result[idx] += row[idx2] * coeffs[idx2]
+            gcp_lla = np.array( [ (c_n_n/c_n_d) * self.get(Term.SAMP_SCALE) + self.get(Term.SAMP_OFF),
+                                  (r_n_n/r_n_d) * self.get(Term.LINE_SCALE) + self.get(Term.LINE_OFF) ],
+                                dtype = np.float64 )
             
-      
-            if result[idx] > 0.000000001:
-                result[idx] = 1.0/result[idx]
-
-        return result
-    

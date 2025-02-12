@@ -47,6 +47,56 @@ class proj_RPC00B( unittest.TestCase ):
         #  Create RPC object from data
         return RPC00B.RPC00B.from_dict( data )
 
+    def load_planet_gcps( self ):
+
+        logger = logging.getLogger( 'test_RPC00B.load_planet_gcps' )
+
+        #  Make sure the RPC example file exists
+        rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
+                                                   '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
+        self.assertTrue( os.path.exists( rpc_path ) )
+
+        #  Load RPC Model
+        self.planet_dem_rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
+
+        #  Create GCPs
+        self.image_size = self.planet_dem_rpc_model.image_size_pixels().astype('int32')
+
+        #  Compute Elevation Range
+        self.planet_dem_method = 'B'
+
+        # Iterate over pixels
+        index = 0
+        self.planet_dem_gcps = []
+        self.planet_dem_kml_points = []
+        for r in range( 0, self.image_size[1], 500 ):
+            for c in range( 0, self.image_size[0], 500 ):
+
+                # Pixel value
+                pixel = np.array( [ c, r ], dtype = np.float64 )
+
+                #  World coordinate
+                lla = self.planet_dem_rpc_model.pixel_to_world( pixel,
+                                                                dem_model = self.dem,
+                                                                logger = logger,
+                                                                method = self.planet_dem_method )
+                
+                logger.debug( f'GCP: {index}, Pixel: {pixel}, LLA: {lla}' )
+
+                #  Add to gcp list
+                gcp = GCP( id         = index,
+                           pixel      = pixel,
+                           coordinate = np.copy( lla ) )
+                index += 1
+                self.planet_dem_gcps.append( gcp )
+
+                new_point = Placemark( name = f'GCP {index}',
+                                       styleUrl='#mainStyle',
+                                       geometry = Point( lat  = lla[1],
+                                                         lon  = lla[0],
+                                                         elev = lla[2] ) )
+                self.planet_dem_kml_points.append( new_point )
+
 
     def setUp(self):
     
@@ -58,6 +108,9 @@ class proj_RPC00B( unittest.TestCase ):
         self.dem = DEM( self.tif_path )
 
         self.flat_dem = Fixed_DEM( elevation_meters = 0 )
+
+        #  Setup Planet Ground-Control points
+        self.load_planet_gcps()
 
         return super().setUp()
     
@@ -178,71 +231,27 @@ class proj_RPC00B( unittest.TestCase ):
     def test_planet1_solver_dem(self):
 
         logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_dem' )
-        logger.debug( 'Logger Initialized' )
-
-        #  Make sure the RPC example file exists
-        rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
-                                                   '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
-        self.assertTrue( os.path.exists( rpc_path ) )
-
-        #  Load RPC Model
-        rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
-
-        #  Create GCPs
-        img_size = rpc_model.image_size_pixels().astype('int32')
-        logger.debug( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
-
-        #  Compute Elevation Range
-        elevations = []
-        method = 'B'
-
-        # Iterate over pixels
-        index = 0
-        gcps = []
-        kml_points = []
-        for r in range( 0, img_size[1], 500 ):
-            for c in range( 0, img_size[0], 500 ):
-
-                # Pixel value
-                pixel = np.array( [ c, r ], dtype = np.float64 )
-
-                #  World coordinate
-                lla = rpc_model.pixel_to_world( pixel,
-                                                dem_model = self.dem,
-                                                logger = logger,
-                                                method = method )
-                
-                logger.debug( f'GCP: {index}, Pixel: {pixel}, LLA: {lla}' )
-
-                #  Add to gcp list
-                gcp = GCP( id         = index,
-                           pixel      = pixel,
-                           coordinate = np.copy( lla ) )
-                index += 1
-                gcps.append( gcp )
-
-                new_point = Placemark( name = f'GCP {index}',
-                                       styleUrl='#mainStyle',
-                                       geometry = Point( lat  = lla[1],
-                                                         lon  = lla[0],
-                                                         elev = lla[2] ) )
-                kml_points.append( new_point )
+        logger.debug( 'Logger Initialized' )        
 
         #  Solve for model
         logger.info( 'Solving RPC00B model' )
-        new_model = RPC00B.RPC00B.solve( gcps,
+        new_model = RPC00B.RPC00B.solve( gcps       = self.planet_dem_gcps,
                                          dem        = self.dem,
-                                         image_size = rpc_model.image_size_pixels(),
-                                         method     = method,
-                                         logger     = logger )
+                                         image_size = self.planet_dem_rpc_model.image_size_pixels(),
+                                         method     = self.planet_dem_method,
+                                         logger     = logger,
+                                         cheat_x_num = self.planet_dem_rpc_model.get_sample_numerator_coefficients(),
+                                         cheat_x_den = self.planet_dem_rpc_model.get_sample_denominator_coefficients(),
+                                         cheat_y_num = self.planet_dem_rpc_model.get_line_numerator_coefficients(),
+                                         cheat_y_den = self.planet_dem_rpc_model.get_line_denominator_coefficients() )
         logger.info( new_model )
         new_model.write_txt( './test_RPC00B.test_planet1_solver_dem.txt' )
 
         #  Verify the model
         res_points = []
         counter = 0
-        for r in range( 0, img_size[1], 500 ):
-            for c in range( 0, img_size[0], 500 ):
+        for r in range( 0, self.image_size[1], 500 ):
+            for c in range( 0, self.image_size[0], 500 ):
 
                 # Pixel value
                 pixel = np.array( [ c, r ], dtype = np.float64 )
@@ -251,9 +260,9 @@ class proj_RPC00B( unittest.TestCase ):
                 lla = new_model.pixel_to_world( pixel,
                                                 dem_model = self.dem,
                                                 logger = logger,
-                                                method = method )
+                                                method = self.planet_dem_method )
 
-                new_point = Placemark( name = f'GCP {index}',
+                new_point = Placemark( name = f'GCP {counter}',
                                        styleUrl='#mainStyle',
                                        geometry = Point( lat  = lla[1],
                                                          lon  = lla[0],
@@ -274,75 +283,13 @@ class proj_RPC00B( unittest.TestCase ):
                        label_style = Label_Style( color = 'ff0000ff' ) )
 
         folder = Folder( 'loaded_model',
-                         features=kml_points )
+                         features=self.planet_dem_kml_points )
         writer.add_node( folder )
 
         folder = Folder( 'solution',
                          features=res_points )
         writer.add_node( folder )
 
-        writer.write( f'output_1_method_{method}' )
+        writer.write( f'output_1_method_{self.planet_dem_method}' )
     
-    def test_planet1_solver_flat(self):
-
-        logger = logging.getLogger( 'test_RPC00B.test_planet1_solver_flat' )
-        logger.debug( 'Logger Initialized' )
-
-        #  Make sure the RPC example file exists
-        rpc_path = os.path.realpath( os.path.join( os.path.dirname( __file__ ),
-                                                   '../data/20240717_171045_18_24af_1B_AnalyticMS_RPC.TXT' ) )
-        self.assertTrue( os.path.exists( rpc_path ) )
-
-        #  Load RPC Model
-        rpc_model = proj_RPC00B.load_rpc_file( rpc_path )
-
-        #  Create GCPs
-        img_size = rpc_model.image_size_pixels().astype('int32')
-        logger.debug( f'Image Size: {img_size[0]} x {img_size[1]} pixels' )
-
-        #  Compute Elevation Range
-        elevations = []
-
-        # Iterate over pixels
-        index = 0
-        gcps = []
-        kml_points = []
-        method = 'B'
-        for r in range( 0, img_size[1], 500 ):
-            for c in range( 0, img_size[0], 500 ):
-
-                # Pixel value
-                pixel = np.array( [ c, r ], dtype = np.float64 )
-
-                #  World coordinate
-                lla = rpc_model.pixel_to_world( pixel,
-                                                dem_model = self.flat_dem,
-                                                logger = logger,
-                                                method = method )
-                logger.debug( 'Pixel: ', pixel, ', LLA: ', lla )
-
-                #  Add to gcp list
-                gcp = GCP( id = index,
-                           pixel = pixel,
-                           coordinate = lla )
-                index += 1
-                gcps.append( gcp )
-
-                new_point = Placemark( name = f'GCP {index}',
-                                       styleUrl='#mainStyle',
-                                       geometry = Point( lat  = lla[1],
-                                                         lon  = lla[0],
-                                                         elev = lla[2] ) )
-                kml_points.append( new_point )
-
-        writer = Writer()
-
-        style = Style( id = 'mainStyle',
-                       label_style = Label_Style( color = 'ff0000ff' ) )
-
-        folder = Folder( 'pixel2world',
-                         features=kml_points )
-        writer.add_node( folder )
-        writer.write( f'output_2_method_{method}' )
-
-        
+    
