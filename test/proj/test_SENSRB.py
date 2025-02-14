@@ -67,7 +67,7 @@ class proj_SENSRB( unittest.TestCase ):
                               pixel = pixel,
                               coordinate = coord ) )
             
-            new_point = Placemark( name = f'GCP {counter}',
+            new_point = Placemark( name = f'Actual GCP {counter}',
                                        styleUrl='#mainStyle',
                                        geometry = Point( lat  = coord[1],
                                                          lon  = coord[0],
@@ -128,6 +128,7 @@ class proj_SENSRB( unittest.TestCase ):
         #  Create model from GCPs
         new_model = SENSRB.SENSRB.solve( gcps       = gcps,
                                          image_size = image_size )
+        logger.debug( new_model )
         
         #  Verify the model
         res_points = []
@@ -142,8 +143,7 @@ class proj_SENSRB( unittest.TestCase ):
                 lla = new_model.pixel_to_world( pixel,
                                                 dem_model = self.dem,
                                                 logger = logger )
-
-                new_point = Placemark( name = f'GCP {counter}',
+                new_point = Placemark( name = f'Computed GCP {counter}',
                                        styleUrl='#mainStyle',
                                        geometry = Point( lat  = lla[1],
                                                          lon  = lla[0],

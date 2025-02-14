@@ -239,11 +239,7 @@ class proj_RPC00B( unittest.TestCase ):
                                          dem        = self.dem,
                                          image_size = self.planet_dem_rpc_model.image_size_pixels(),
                                          method     = self.planet_dem_method,
-                                         logger     = logger,
-                                         cheat_x_num = self.planet_dem_rpc_model.get_sample_numerator_coefficients(),
-                                         cheat_x_den = self.planet_dem_rpc_model.get_sample_denominator_coefficients(),
-                                         cheat_y_num = self.planet_dem_rpc_model.get_line_numerator_coefficients(),
-                                         cheat_y_den = self.planet_dem_rpc_model.get_line_denominator_coefficients() )
+                                         logger     = logger )
         logger.info( new_model )
         new_model.write_txt( './test_RPC00B.test_planet1_solver_dem.txt' )
 

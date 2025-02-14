@@ -238,6 +238,7 @@ class SENSRB(BaseTransformer):
     
     def pixel_to_world( self,
                         pixel,
+                        coord_epsg = 4326,
                         dem_model = None,
                         logger = None ):
         '''
@@ -281,13 +282,14 @@ class SENSRB(BaseTransformer):
             coord = S @ M @ pixel.reshape(2,1) + np.array( [[dx],[dy]])
 
         elif len(xform) == 6:
-            S = np.array( [[ xform[0], xform[1] ], 
-                           [ xform[2], xform[3] ]] )
-        
-            print(S)
-            print(pixel.reshape(2,1))
-            coord = S @ pixel.reshape(1,2) + np.array( [[xform[4]],[xform[5]]])
-            print( f'coord: {coord}' )
+
+            S = np.array( [[ xform[0], xform[1], xform[4] ], 
+                           [ xform[2], xform[3], xform[5] ],
+                           [        0,        0,        1 ] ] )
+            p = np.copy( pixel ).reshape( 2,1 )
+            p = np.append( p, np.array([1]))
+
+            coord = S @ p
         
         elif len(xform) == 8:
             
@@ -302,10 +304,9 @@ class SENSRB(BaseTransformer):
         else:
             raise Exception( f'Unsupported Number of Coefficients: {len(xform)}' )
 
-        coord = coord.resize( 3, 1 )
         if dem_model != None:
-            coord[2] = dem_model.elevation_meters( coord )
-        return coord
+            coord[2] = dem_model.elevation_meters( coord, epsg = coord_epsg )
+        return coord.reshape( 3 )
     
 
     def __str__(self):
@@ -366,6 +367,8 @@ class SENSRB(BaseTransformer):
             By_pnts.append( [gcp.coordinate[1]] )
 
         A = np.array( A_pnts )
+
+        #  See my math.solver API for an example of Penrose SVD-based pinv method
         A_inv = np.linalg.pinv( A )
         
         #  Result Matrices
@@ -381,11 +384,12 @@ class SENSRB(BaseTransformer):
         new_model.set( Term.ROW_COUNT, image_size[1] )
 
         new_model.set( Term.TRANSFORM_PARAMS, len(coeffA) + len(coeffB) )
-        new_model.set( Term.TRANSFORM_PARAM_1, coeffA[0] )
-        new_model.set( Term.TRANSFORM_PARAM_2, coeffA[1] )
-        new_model.set( Term.TRANSFORM_PARAM_3, coeffB[0] )
-        new_model.set( Term.TRANSFORM_PARAM_4, coeffB[1] )
-        new_model.set( Term.TRANSFORM_PARAM_5, coeffA[2] )
-        new_model.set( Term.TRANSFORM_PARAM_6, coeffB[2] )
+        new_model.set( Term.TRANSFORM_PARAM_1, float(coeffA[0]) )
+        new_model.set( Term.TRANSFORM_PARAM_2, float(coeffA[1]) )
+        new_model.set( Term.TRANSFORM_PARAM_3, float(coeffB[0]) )
+        new_model.set( Term.TRANSFORM_PARAM_4, float(coeffB[1]) )
+        new_model.set( Term.TRANSFORM_PARAM_5, float(coeffA[2]) )
+        new_model.set( Term.TRANSFORM_PARAM_6, float(coeffB[2]) )
+
 
         return new_model

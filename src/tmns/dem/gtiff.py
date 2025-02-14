@@ -16,6 +16,11 @@ import os
 #  Rasterio Libraries
 import rasterio
 
+import numpy as np
+
+#  Pyproj
+from pyproj import CRS, Transformer
+
 #  Terminus Libraries
 from tmns.image.utils import ( interp_index_nd,
                                interp_image )
@@ -83,15 +88,25 @@ class DEM_File:
 
         return True
 
-    def elevation_meters( self, lla, logger = None ):
+    def elevation_meters( self, coordinate, epsg = 4326, logger = None ):
 
         if logger is None:
             logger = logging.getLogger( 'gtiff.DEM_File.elevation_meters' )
 
+        #  Check if we need to convert the coordinate
+        if epsg != 4326:
+
+            xform = Transformer.from_crs( epsg, 4326, always_xy=True )
+            coordinate = np.copy( coordinate )
+            res = xform.transform( coordinate[0],
+                                   coordinate[1] )
+            
+            coordinate[0] = res[0]
+            coordinate[1] = res[1]
 
         #  Convert the LLA to pixel coordinates
         xform = self.dataset.transform
-        pixel = ~xform * (lla[0], lla[1])
+        pixel = ~xform * (coordinate[0], coordinate[1])
 
         
         indices = interp_index_nd( pixel )
