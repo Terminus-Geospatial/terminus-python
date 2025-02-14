@@ -141,7 +141,12 @@ class Term(Enum):
     def get_line_den( off ):
         id = Term.LINE_DEN_COEFF_1.value + off - 1
         return Term(id)
-    
+
+
+class RPC_Type(Enum):
+    A = 'A'
+    B = 'B'
+   
 
 class RPC00B(BaseTransformer):
 
@@ -176,7 +181,11 @@ class RPC00B(BaseTransformer):
                          dtype = np.float64 )
 
     
-    def world_to_pixel( self, coord, skip_elevation = False, logger = None, method = 'B' ):
+    def world_to_pixel( self,
+                        coord, 
+                        skip_elevation: bool = False,
+                        logger = None,
+                        rpc_type: RPC_Type = RPC_Type.B ):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.world_to_pixel' )
@@ -190,7 +199,7 @@ class RPC00B(BaseTransformer):
             H = (coord[2] - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
         logger.debug( f'L: {L}, P: {P}, H: {H}' )
 
-        plh_vec = self.get_plh_vector( P = P, L = L, H = H, method = method )
+        plh_vec = self.get_plh_vector( P = P, L = L, H = H, rpc_type = rpc_type )
 
         r_n_n = np.dot( self.get_line_numerator_coefficients(),     plh_vec )
         r_n_d = np.dot( self.get_line_denominator_coefficients(),   plh_vec )
@@ -205,9 +214,9 @@ class RPC00B(BaseTransformer):
     def pixel_to_world( self,
                         pixel,
                         dem_model = None,
-                        max_iterations = 100,
-                        convergence_epsilon = 0.1,
-                        method = 'B',
+                        max_iterations: int = 20,
+                        convergence_epsilon: float = 0.1,
+                        rpc_type: RPC_Type = RPC_Type.B,
                         logger = None ):
         '''
         Convert a Pixel coordinate into World coordinates.
@@ -215,7 +224,6 @@ class RPC00B(BaseTransformer):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.pixel_to_world' )
-        #logger.debug( f'Pixel: {pixel}, Method: {method}')
 
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
@@ -245,10 +253,10 @@ class RPC00B(BaseTransformer):
 
             #  Calculate the normalized line and sample Uc, Vc as ratio of
             #  polynomials Pu, Qu and Pv, Qv:
-            plh_vec = self.get_plh_vector( P = nlat,
-                                           L = nlon,
-                                           H = nhgt,
-                                           method = method )
+            plh_vec = self.get_plh_vector( P        = nlat,
+                                           L        = nlon,
+                                           H        = nhgt,
+                                           rpc_type = rpc_type )
             
             Pv = np.dot( plh_vec, self.get_sample_numerator_coefficients() )
             Qv = np.dot( plh_vec, self.get_sample_denominator_coefficients() )
@@ -278,14 +286,14 @@ class RPC00B(BaseTransformer):
             if abs(delta_U) > epsilonU or abs(delta_V) > epsilonV:
 
                 #  Analytically compute the partials of each polynomial wrt lat, lon:
-                dPu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     method = method )
-                dQu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   method = method )
-                dPv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   method = method )
-                dQv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), method = method )
-                dPu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     method = method )
-                dQu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   method = method )
-                dPv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   method = method )
-                dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), method = method )
+                dPu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     rpc_type = rpc_type )
+                dQu_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   rpc_type = rpc_type )
+                dPv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   rpc_type = rpc_type )
+                dQv_dLat = self.dPoly_dLat( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), rpc_type = rpc_type )
+                dPu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_numerator_coefficients(),     rpc_type = rpc_type )
+                dQu_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_line_denominator_coefficients(),   rpc_type = rpc_type )
+                dPv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   rpc_type = rpc_type )
+                dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), rpc_type = rpc_type )
          
                 # Analytically compute partials of quotients U and V wrt lat, lon:
                 dU_dLat = ( Qu * dPu_dLat - Pu * dQu_dLat ) / ( Qu * Qu )
@@ -331,9 +339,9 @@ class RPC00B(BaseTransformer):
         return output
 
     
-    def get_plh_vector( self, P, L, H, method = 'B' ):
+    def get_plh_vector( self, P, L, H, rpc_type = RPC_Type.B ):
         
-        if method == 'A':
+        if rpc_type == RPC_Type.A:
             PLH_vec = np.array( [        1.0,           L,           P,          H,
                                        L * P,       L * H,       P * H,  L * P * H,
                                       L ** 2,      P ** 2,      H ** 2,     L ** 3,
@@ -413,44 +421,44 @@ class RPC00B(BaseTransformer):
                           dtype = np.float64 )
 
     
-    def dPoly_dLat( self, P, L, H, poly, method ):
+    def dPoly_dLat( self, P, L, H, poly, rpc_type: RPC_Type = RPC_Type.B ):
 
         parts = None
         terms = None
 
-        if method == 'A':
+        if rpc_type == RPC_Type.A:
             parts = np.array( [poly[2], poly[4], poly[6], poly[7], poly[9],  poly[12],   poly[14],  poly[15],   poly[16],  poly[18] ], dtype = np.float64 )
             terms = np.array( [      1,       L,       H,   L * H,   2 * P,     L * L,  2 * L * P, 3 * P * P,  2 * P * H,     H * H ], dtype = np.float64 )
 
-        elif method == 'B':
+        elif rpc_type == RPC_Type.B:
             parts = np.array( [poly[2], poly[4], poly[6], poly[8], poly[10],  poly[12], poly[14],  poly[15], poly[16],  poly[18] ], dtype = np.float64 )
             terms = np.array( [      1,       L,       H,   2 * P,    L * H, 2 * L * P,    L * L, 3 * P * P,    H * H, 2 * P * H ], dtype = np.float64 )
         
         return np.dot( parts, terms )
 
     
-    def dPoly_dLon( self, P, L, H, poly, method ):
+    def dPoly_dLon( self, P, L, H, poly, rpc_type: RPC_Type = RPC_Type.B ):
 
         parts = None
         terms = None
 
-        if method == 'A':
+        if rpc_type == RPC_Type.A:
             parts = np.array( [poly[1], poly[4], poly[5], poly[7], poly[8],  poly[11], poly[12],  poly[13], poly[14],  poly[17] ], dtype = np.float64 )
             terms = np.array( [      1,       P,       H,   P * H,   2 * L, 3 * L * L, 2 * L * P, 2 * L * H,   P * P,     H * H ], dtype = np.float64 )
 
-        elif method == 'B':
+        elif rpc_type == RPC_Type.B:
             parts = np.array( [poly[1], poly[4], poly[5], poly[7], poly[10],  poly[11], poly[12],  poly[13], poly[14],  poly[17] ], dtype = np.float64 )
             terms = np.array( [      1,       P,       H,   2 * L,    P * H, 3 * L * L,    P * P,     H * H, 2 * P * L, 2 * L * H ], dtype = np.float64 )
         
         return np.dot( parts, terms )
 
-    def dPoly_dHgt( self, P, L, H, poly, method ):
+    def dPoly_dHgt( self, P, L, H, poly, rpc_type: RPC_Type = RPC_Type.B ):
 
-        if method == 'A':
+        if rpc_type == RPC_Type.A:
             parts = np.array( [poly[3], poly[5], poly[6], poly[7], poly[10],  poly[13],  poly[16],  poly[17],  poly[18],  poly[19] ], dtype = np.float64 )
             terms = np.array( [      1,       L,       P,   L * P,    2 * H,     L * L,     P * P, 2 * L * H, 2 * P * H,  3 * H * H ], dtype = np.float64 )
         
-        elif method == 'B':
+        elif rpc_type == RPC_Type.B:
             parts = np.array( [poly[3], poly[5], poly[6], poly[9], poly[10],  poly[13],   poly[16],  poly[17],  poly[18],  poly[19] ], dtype = np.float64 )
             terms = np.array( [      1,       L,       P,   2 * H,    L * P, 2 * L * H,  2 * P * H,     L * L,     P * P, 3 * H * H ], dtype = np.float64 )
       
@@ -548,10 +556,10 @@ class RPC00B(BaseTransformer):
 
     @staticmethod
     def solve( gcps: list[GCP], 
-               image_size = None,
-               dem = None, 
-               method = 'B', 
-               logger = None ):
+               image_size         = None,
+               dem                = None, 
+               rpc_type: RPC_Type = RPC_Type.B, 
+               logger             = None ):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.solve' )
@@ -600,19 +608,6 @@ class RPC00B(BaseTransformer):
         #------------------------------------------#
         for idx in range( len( gcps ) ):
 
-            #  Extract the points
-            #if minPnt_pair == None:
-            #    minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-            #    maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-            
-            #  Check if min point
-            #if np.linalg.norm( minPnt_pair[0] ) > np.linalg.norm( gcps[idx].pixel ):
-            #    minPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-                
-            #  Check if max point
-            #if np.linalg.norm( maxPnt_pair[0] ) < np.linalg.norm( gcps[idx].pixel ):
-            #    maxPnt_pair = [ np.copy( gcps[idx].pixel ), np.copy( gcps[idx].coordinate ) ]
-
             #  Normalize geographic coordinates
             d_lla = gcps[idx].coordinate - center_lla
             
@@ -634,15 +629,7 @@ class RPC00B(BaseTransformer):
             if abs( d_lla[2] ) > maxDeltaLLA[2]:
                 maxDeltaLLA[2] = abs( gcps[idx].coordinate[2] )
             
-        #  Solve delta
-        #logger.info( f'Pre Delta: {maxDeltaLLA}, min point: {minPnt_pair[1]}, max point: {maxPnt_pair[1]}' )
-        #pnt_dlt = (maxPnt_pair[1] - minPnt_pair[1])
-        #pnt_mag = np.ones( len( pnt_dlt ) )
-        #for idx in range( 0, 2 ):
-        #    if pnt_dlt[idx] < 0:
-        #        maxDeltaLLA[idx] *= -1
-        #logger.info( f'Point Delta: {pnt_dlt}, Mag: {pnt_mag}, DeltaLLA: {maxDeltaLLA}' )
-        
+        #  Solve delta        
         if abs(maxDeltaLLA[2]) < 1:
             logger.info( f'Height model is too small.  Using delta of 1' )
             maxDeltaLLA[2] = 1
@@ -652,9 +639,6 @@ class RPC00B(BaseTransformer):
             x[idx] /= maxDeltaLLA[0]
             y[idx] /= maxDeltaLLA[1]
             z[idx] /= maxDeltaLLA[2]
-
-        for idx in range( len( z ) ):
-            print( f'IDX: {idx}, x: {x[idx]}, y: {y[idx]}, z: {z[idx]}' )
 
         #  Create a new model
         rpc_model = RPC00B()
@@ -695,8 +679,8 @@ class RPC00B(BaseTransformer):
 
             npix = rpc_model.world_to_pixel( gcp.coordinate,
                                              skip_elevation = False,
-                                             logger = logger,
-                                             method = method )
+                                             logger         = logger,
+                                             rpc_type       = rpc_type )
             
             delta = npix - gcp.pixel
             val = math.sqrt( np.dot( delta, delta ) )

@@ -51,7 +51,7 @@ class proj_RPC00B( unittest.TestCase ):
 
         logger = logging.getLogger('test_RPC00B.load_planet_model')
 
-        model = { 'method': 'B',
+        model = { 'rpc_type':   RPC00B.RPC_Type.B,
                   'elevations': [],
                   'image_size': [],
                   'kml_points': [],
@@ -79,7 +79,7 @@ class proj_RPC00B( unittest.TestCase ):
                 lla = model['rpc_model'].pixel_to_world( pixel,
                                                          dem_model = dem,
                                                          logger    = logger,
-                                                         method    = model['method'] )
+                                                         rpc_type  = model['rpc_type'] )
                 logger.debug( 'Pixel: ', pixel, ', LLA: ', lla )
 
                 #  Add to gcp list
@@ -243,7 +243,7 @@ class proj_RPC00B( unittest.TestCase ):
         new_model = RPC00B.RPC00B.solve( model['gcps'],
                                          dem        = self.srtm_dem,
                                          image_size = model['rpc_model'].image_size_pixels(),
-                                         method     = model['method'],
+                                         rpc_type   = model['rpc_type'],
                                          logger     = logger )
         logger.info( new_model )
         new_model.write_txt( './test_RPC00B.test_planet1_solver_dem.txt' )
@@ -260,8 +260,8 @@ class proj_RPC00B( unittest.TestCase ):
                 #  World coordinate
                 lla = new_model.pixel_to_world( pixel,
                                                 dem_model = self.srtm_dem,
-                                                logger = logger,
-                                                method = model['method'] )
+                                                logger    = logger,
+                                                rpc_type  = model['rpc_type'] )
 
                 new_point = Placemark( name = f'GCP {counter}',
                                        styleUrl='#mainStyle',
@@ -283,7 +283,7 @@ class proj_RPC00B( unittest.TestCase ):
         folder = Folder( 'pixel2world',
                          features=model['kml_points'] )
         writer.add_node( folder )
-        writer.write( f'output_2_dem_method_{model['method']}' )
+        writer.write( f'output_2_dem_rpctype_{model['rpc_type']}' )
 
     
     def test_planet1_solver_flat(self):
@@ -304,7 +304,7 @@ class proj_RPC00B( unittest.TestCase ):
         new_model = RPC00B.RPC00B.solve( new_gcps,
                                          dem        = self.flat_dem,
                                          image_size = model['rpc_model'].image_size_pixels(),
-                                         method     = model['method'],
+                                         rpc_type   = model['rpc_type'],
                                          logger     = logger )
         logger.info( new_model )
         new_model.write_txt( './test_RPC00B.test_planet1_solver_flat.txt' )
@@ -321,8 +321,8 @@ class proj_RPC00B( unittest.TestCase ):
                 #  World coordinate
                 lla = new_model.pixel_to_world( pixel,
                                                 dem_model = self.srtm_dem,
-                                                logger = logger,
-                                                method = model['method'] )
+                                                logger    = logger,
+                                                rpc_type  = model['rpc_type'] )
 
                 new_point = Placemark( name = f'GCP {counter}',
                                        styleUrl='#mainStyle',
@@ -344,6 +344,6 @@ class proj_RPC00B( unittest.TestCase ):
         folder = Folder( 'pixel2world',
                          features=model['kml_points'] )
         writer.add_node( folder )
-        writer.write( f'output_2_flat_method_{model['method']}' )
+        writer.write( f'output_2_flat_rpctype_{model['rpc_type']}' )
 
         
