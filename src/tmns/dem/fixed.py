@@ -50,7 +50,7 @@ class Fixed_DEM:
         return self.stats
     
 
-    def elevation_meters( self, lla = None ):
+    def elevation_meters( self, lla = None, *args, **kwargs ):
         return self._elevation_meters
  
     

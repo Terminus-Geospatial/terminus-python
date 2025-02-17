@@ -88,7 +88,11 @@ class DEM_File:
 
         return True
 
-    def elevation_meters( self, coordinate, epsg = 4326, logger = None ):
+    def elevation_meters( self,
+                          coordinate,
+                          epsg = 4326,
+                          do_interpolate = False,
+                          logger = None ):
 
         if logger is None:
             logger = logging.getLogger( 'gtiff.DEM_File.elevation_meters' )
@@ -108,36 +112,41 @@ class DEM_File:
         xform = self.dataset.transform
         pixel = ~xform * (coordinate[0], coordinate[1])
 
-        
-        indices = interp_index_nd( pixel )
-        #logger.debug( f'LLA: {lla}, Pixel: {pixel}, Indices: {indices}' )
 
-        # Top left
-        p00 = indices[0]
-        if not self.bbox.inside( p00 ):
-            return None
+        if do_interpolate:
         
-        p10 = indices[1]
-        if not self.bbox.inside( p10 ):
-            return None
-        
-        p01 = indices[2]
-        if not self.bbox.inside( p01 ):
-            return None
-        
-        p11 = indices[3]
-        if not self.bbox.inside( p11 ):
-            return None
+            indices = interp_index_nd( pixel )
+            #logger.debug( f'LLA: {lla}, Pixel: {pixel}, Indices: {indices}' )
 
-        dx = pixel[0] - p00[0]
-        dy = pixel[1] - p00[1]
+            # Top left
+            p00 = indices[0]
+            if not self.bbox.inside( p00 ):
+                return None
+        
+            p10 = indices[1]
+            if not self.bbox.inside( p10 ):
+                return None
+        
+            p01 = indices[2]
+            if not self.bbox.inside( p01 ):
+                return None
+        
+            p11 = indices[3]
+            if not self.bbox.inside( p11 ):
+                return None
 
-        #  Use interpolation
-        return interp_image( self.raster,
-                              dx =  dx,  dy =  dy, 
-                             p00 = p00, p10 = p10,
-                             p01 = p01, p11 = p11 )
- 
+            dx = pixel[0] - p00[0]
+            dy = pixel[1] - p00[1]
+
+            #  Use interpolation
+            return interp_image( self.raster,
+                                  dx =  dx,  dy =  dy, 
+                                 p00 = p00, p10 = p10,
+                                 p01 = p01, p11 = p11 )
+
+        else:
+            rp = np.round( pixel ).astype('int')
+            return self.raster[rp[1],rp[0]]
     
     def __str__(self):
 

@@ -172,6 +172,8 @@ class SENSRB(BaseTransformer):
 
             for k in data.keys():
                 self.data[k] = data[k]
+        
+        self.corners = None
 
     
     def get( self, key ):
@@ -219,15 +221,13 @@ class SENSRB(BaseTransformer):
         
         elif len(terms) == 6:
             
-            A = np.array( [ [ terms[0], terms[1], terms[2]],
-                            [ terms[3], terms[4], terms[5]],
-                            [     0   ,     0   ,     1   ] ],
-                            dtype = np.float64 )
+            A = self.get_transform_array( as_matrix=True)
 
             A_inv = np.linalg.pinv( A )
+
             pix = A_inv @ np.array( [ [ coord[0] ],
                                       [ coord[1] ],
-                                      [ coord[2] ] ])
+                                      [ 1 ] ], dtype = np.float64 )
 
         elif len(terms) == 8:
             raise NotImplementedError()
@@ -283,9 +283,7 @@ class SENSRB(BaseTransformer):
 
         elif len(xform) == 6:
 
-            S = np.array( [[ xform[0], xform[1], xform[4] ], 
-                           [ xform[2], xform[3], xform[5] ],
-                           [        0,        0,        1 ] ] )
+            S = self.get_transform_array( as_matrix=True )
             p = np.copy( pixel ).reshape( 2,1 )
             p = np.append( p, np.array([1]))
 
@@ -315,7 +313,7 @@ class SENSRB(BaseTransformer):
             output += f'   - {k.name}:  {self.data[k]}\n'
         return output
     
-    def get_transform_array(self):
+    def get_transform_array(self, as_matrix = False ):
         '''
         Return the transform as an array
         '''
@@ -323,7 +321,16 @@ class SENSRB(BaseTransformer):
         params = []
         for x in range( n_params ):
             params.append( self.get( Term(Term.TRANSFORM_PARAM_1.value + x) ) )
-        return params
+
+        if as_matrix:
+
+            return np.array( [[ params[0], params[1], params[4]],
+                              [ params[2], params[3], params[5]],
+                              [         0,         0,         1 ]],
+                             dtype = np.float64 )
+
+        else:
+            return params
     
     @staticmethod
     def defaults():
@@ -369,7 +376,7 @@ class SENSRB(BaseTransformer):
         A = np.array( A_pnts )
 
         #  See my math.solver API for an example of Penrose SVD-based pinv method
-        A_inv = np.linalg.pinv( A )
+        A_inv = pseudoinverse( A )  #np.linalg.pinv( A )
         
         #  Result Matrices
         B_x = np.array( Bx_pnts )

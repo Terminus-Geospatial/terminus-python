@@ -18,10 +18,14 @@ import math
 import numpy as np
 np.set_printoptions(precision=6, floatmode='fixed')
 
+import scipy.optimize
+
 #  Project Libraries
 from tmns.core.types       import GCP
 from tmns.math.geometry    import Rectangle
 from tmns.math.solver      import pseudoinverse
+from tmns.proj.rpc_utils   import ( LM_Solver,
+                                    WLSQ_Solver )
 from tmns.proj.transformer import BaseTransformer
 
 class Term(Enum):
@@ -146,7 +150,10 @@ class Term(Enum):
 class RPC_Type(Enum):
     A = 'A'
     B = 'B'
-   
+
+class Solve_Method(Enum):
+    WEIGHTED_LEAST_SQUARES = 1
+    LEVENBURG_MARQUARDT    = 2
 
 class RPC00B(BaseTransformer):
 
@@ -159,6 +166,8 @@ class RPC00B(BaseTransformer):
 
             for k in data.keys():
                 self.data[k] = data[k]
+
+        self.corners = None
 
     
     def get( self, key ):
@@ -180,6 +189,17 @@ class RPC00B(BaseTransformer):
                            self.get(Term.LINE_SCALE)*2],
                          dtype = np.float64 )
 
+    def world_bounds(self, dem = None ):
+        
+        if self.corners == None:
+            self.estimate_bounds( dem = dem )
+        
+        bbox = Rectangle( self.corners['tl'] )
+        bbox.add_point( self.corners['tr'])
+        bbox.add_point( self.corners['bl'])
+        bbox.add_point( self.corners['br'])
+
+        return bbox
     
     def world_to_pixel( self,
                         coord, 
@@ -197,7 +217,7 @@ class RPC00B(BaseTransformer):
         H = ( - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
         if skip_elevation == False:
             H = (coord[2] - self.get( Term.HEIGHT_OFF ) ) / self.get( Term.HEIGHT_SCALE )
-        logger.debug( f'L: {L}, P: {P}, H: {H}' )
+        #logger.debug( f'L: {L}, P: {P}, H: {H}' )
 
         plh_vec = self.get_plh_vector( P = P, L = L, H = H, rpc_type = rpc_type )
 
@@ -214,7 +234,7 @@ class RPC00B(BaseTransformer):
     def pixel_to_world( self,
                         pixel,
                         dem_model = None,
-                        max_iterations: int = 20,
+                        max_iterations: int = 50,
                         convergence_epsilon: float = 0.1,
                         rpc_type: RPC_Type = RPC_Type.B,
                         logger = None ):
@@ -224,6 +244,7 @@ class RPC00B(BaseTransformer):
 
         if logger == None:
             logger = logging.getLogger( 'RPC00B.pixel_to_world' )
+
 
         #  The image point must be adjusted by the adjustable parameters as well
         # as the scale and offsets given as part of the RPC param normalization.
@@ -295,6 +316,13 @@ class RPC00B(BaseTransformer):
                 dPv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_numerator_coefficients(),   rpc_type = rpc_type )
                 dQv_dLon = self.dPoly_dLon( nlat, nlon, nhgt, self.get_sample_denominator_coefficients(), rpc_type = rpc_type )
          
+                if abs(Qu) < 0.00001:
+                    logger.warning( f'Cutting early at iteration {iteration}. Qu ({Qu}) too low. NLAT: {nlat}, NLON: {nlon}' )
+                    break
+                if abs(Qv) < 0.00001:
+                    logger.warning( f'Cutting early at iteration {iteration}. Qu ({Qv}) too low. NLAT: {nlat}, NLON: {nlon}' )
+                    break
+
                 # Analytically compute partials of quotients U and V wrt lat, lon:
                 dU_dLat = ( Qu * dPu_dLat - Pu * dQu_dLat ) / ( Qu * Qu )
                 dU_dLon = ( Qu * dPu_dLon - Pu * dQu_dLon ) / ( Qu * Qu )
@@ -302,13 +330,22 @@ class RPC00B(BaseTransformer):
                 dV_dLon = ( Qv * dPv_dLon - Pv * dQv_dLon ) / ( Qv * Qv )
          
                 W = dU_dLon * dV_dLat - dU_dLat * dV_dLon
+                if abs(W) < 0.00001:
+                    logger.warning( f'Cutting early at iteration {iteration}. W ({W}) too low. NLAT: {nlat}, NLON: {nlon}' )
+                    break
          
                 # Now compute the corrections to normalized lat, lon:
                 deltaLat = ( dU_dLon * delta_V - dV_dLon * delta_U ) / W
                 deltaLon = ( dV_dLat * delta_U - dU_dLat * delta_V ) / W
+                if np.isnan( deltaLat ) or np.isnan( deltaLon ):
+                    logger.warning( f'Cutting early at iteration {iteration}. Nan found: {deltaLat}, {deltaLon}' )
+                    break
+                if np.isinf( deltaLat ) or np.isinf( deltaLon ):
+                    logger.warning( f'Cutting early at iteration {iteration}. Inf found: {deltaLat}, {deltaLon}' )
+                    break
+
                 nlat += deltaLat
                 nlon += deltaLon
-                #logger.debug( f' - Check 2: W: {W}, dLat: {deltaLat:0.6f}, dLon: {deltaLon:0.6f}' )
 
             #  Check if we've triggered the exit condition
             if abs(delta_U) < epsilonU and abs(delta_V) < epsilonV:
@@ -318,8 +355,9 @@ class RPC00B(BaseTransformer):
 
         #  Test for exceeding allowed number of iterations. Flag error if so:
         if iteration == max_iterations:
-            logger.warning( f'Pixel {pixel} failed to converge after {max_iterations} iterations.' )
-            logger.warning( f'     deltaU: {abs(delta_U)}, epsU: {epsilonU}, deltaV: {abs(delta_V)}, epsV: {epsilonV}' )
+            logger.debug( f'Pixel {pixel} failed to converge after {max_iterations} iterations.' )
+            logger.debug( f'     deltaU: {abs(delta_U)}, epsU: {epsilonU}, deltaV: {abs(delta_V)}, epsV: {epsilonV}' )
+
         #  Now un-normalize the ground point lat, lon and establish return quantity
         gnd_lon = nlon * self.get(Term.LON_SCALE) + self.get(Term.LON_OFF)
         gnd_lat = nlat * self.get(Term.LAT_SCALE) + self.get(Term.LAT_OFF)
@@ -331,6 +369,22 @@ class RPC00B(BaseTransformer):
         
         return ground_point
 
+
+    def estimate_bounds(self, dem):
+
+        #  Get the image dims
+        image_size = self.image_size_pixels()
+
+        #  Get the 4 corners
+        self.corners = { 'tl': self.pixel_to_world( np.array( [ 0, 0 ], dtype = np.float64 ),
+                                                    dem_model = dem ),
+                         'tr': self.pixel_to_world( np.array( [ image_size[0]-1, 0 ],dtype = np.float64 ),
+                                                    dem_model = dem ),
+                         'bl': self.pixel_to_world( np.array( [ 0, image_size[1]-1 ],dtype = np.float64 ),
+                                                    dem_model = dem ),
+                         'br': self.pixel_to_world( np.array( [ image_size[0]-1, image_size[1]-1 ], dtype = np.float64 ),
+                                                    dem_model = dem ) }
+        
     
     def __str__(self):
         output  =  'RPC00B:\n'
@@ -375,6 +429,11 @@ class RPC00B(BaseTransformer):
                            self.data[Term.SAMP_NUM_COEFF_19], self.data[Term.SAMP_NUM_COEFF_20] ],
                           dtype = np.float64 )
 
+    def set_sample_numerator_coefficients( self, coeffs ):
+
+        for idx in range( 20 ):
+            self.set( Term.get_sample_num( idx + 1 ), coeffs[idx] )
+
     
     def get_sample_denominator_coefficients(self):
 
@@ -390,6 +449,10 @@ class RPC00B(BaseTransformer):
                            self.data[Term.SAMP_DEN_COEFF_19], self.data[Term.SAMP_DEN_COEFF_20] ],
                           dtype = np.float64 )
 
+    def set_sample_denominator_coefficients( self, coeffs ):
+
+        for idx in range( 20 ):
+            self.set( Term.get_sample_den( idx + 1 ), coeffs[idx] )
     
     def get_line_numerator_coefficients(self):
 
@@ -405,6 +468,10 @@ class RPC00B(BaseTransformer):
                            self.data[Term.LINE_NUM_COEFF_19], self.data[Term.LINE_NUM_COEFF_20] ],
                           dtype = np.float64 )
 
+    def set_line_numerator_coefficients( self, coeffs ):
+
+        for idx in range( 20 ):
+            self.set( Term.get_line_num( idx + 1 ), coeffs[idx] )
     
     def get_line_denominator_coefficients(self):
 
@@ -420,6 +487,10 @@ class RPC00B(BaseTransformer):
                            self.data[Term.LINE_DEN_COEFF_19], self.data[Term.LINE_DEN_COEFF_20] ],
                           dtype = np.float64 )
 
+    def set_line_denominator_coefficients( self, coeffs ):
+
+        for idx in range( 20 ):
+            self.set( Term.get_line_den( idx + 1 ), coeffs[idx] )
     
     def dPoly_dLat( self, P, L, H, poly, rpc_type: RPC_Type = RPC_Type.B ):
 
@@ -556,13 +627,133 @@ class RPC00B(BaseTransformer):
 
     @staticmethod
     def solve( gcps: list[GCP], 
-               image_size         = None,
-               dem                = None, 
-               rpc_type: RPC_Type = RPC_Type.B, 
-               logger             = None ):
+               image_size           = None,
+               dem                  = None, 
+               rpc_type: RPC_Type   = RPC_Type.B, 
+               skip_elevation       = False,
+               solver: Solve_Method = Solve_Method.WEIGHTED_LEAST_SQUARES,
+               logger               = None ):
 
+        res = None
+        if solver == Solve_Method.WEIGHTED_LEAST_SQUARES:
+            res = RPC00B.solve_wlsq( gcps,
+                                     rpc_type = rpc_type,
+                                     logger   = logger )
+        
+        elif solver == Solve_Method.LEVENBURG_MARQUARDT:
+            res = RPC00B.solve_lm( gcps,
+                                   dem      = dem,
+                                   rpc_type = rpc_type,
+                                   logger   = logger )
+
+        #  Solve the bounding rectangle
+        res.estimate_bounds( dem = dem )
+
+        return res
+
+    @staticmethod
+    def solve_lm( gcps: list[GCP], 
+                   image_size           = None,
+                   dem                  = None,
+                   skip_elevation       = False, 
+                   rpc_type: RPC_Type   = RPC_Type.B,
+                   logger               = None ):
+        
         if logger == None:
-            logger = logging.getLogger( 'RPC00B.solve' )
+            logger = logging.getLogger( 'RPC00B.solve_lm' )
+
+        #  Create model
+        model = RPC00B.solve_wlsq( gcps,
+                                   image_size,
+                                   rpc_type,
+                                   logger )
+        
+        logger.debug( 'Optimizing using SciPy Least Squares' )
+        parts = { 'model': model,
+                  'gcps':  gcps,
+                  'skip_elevation': skip_elevation,
+                  'logger': logger,
+                  'rpc_type':  rpc_type }
+        
+        init_coeffs = np.concatenate( [ model.get_sample_numerator_coefficients(),
+                                        model.get_sample_denominator_coefficients(),
+                                        model.get_line_numerator_coefficients(),
+                                        model.get_line_denominator_coefficients() ] )
+
+        res = scipy.optimize.least_squares( LM_Solver.fitness,
+                                            x0 = init_coeffs,
+                                            method = 'lm',
+                                            verbose = 2,
+                                            ftol = 1e-4,
+                                            loss = 'linear',
+                                            kwargs=parts )
+
+        #  Update teh model
+        return model
+    
+    @staticmethod
+    def solve_wlsq( gcps: list[GCP], 
+                    image_size           = None,
+                    rpc_type: RPC_Type   = RPC_Type.B,
+                    logger               = None ):
+        
+        if logger == None:
+            logger = logging.getLogger( 'RPC00B.solve_wlsq' )
+        logger.debug( 'Solving for base model with Weighted Least Squares' )
+
+
+        model = RPC00B.create_base_model( gcps,
+                                          image_size,
+                                          rpc_type,
+                                          logger )
+        rpc_model = model['rpc_model']
+
+        #  Perform Least-Squares Fit
+        x_coeff = WLSQ_Solver.solve_coefficients( model['fx'], model['x'], model['y'], model['z'] )
+        y_coeff = WLSQ_Solver.solve_coefficients( model['fy'], model['x'], model['y'], model['z'] )
+
+        rpc_model.set( Term.LINE_NUM_COEFF_1, y_coeff[0] )
+        rpc_model.set( Term.LINE_DEN_COEFF_1, 1.0 )
+        rpc_model.set( Term.SAMP_NUM_COEFF_1, x_coeff[0] )
+        rpc_model.set( Term.SAMP_DEN_COEFF_1, 1.0 )
+
+        for idx in range( 2, 20 ):
+            rpc_model.set( Term.get_line_num(idx), y_coeff[idx] )
+            rpc_model.set( Term.get_line_den(idx), y_coeff[idx+19] )
+            rpc_model.set( Term.get_sample_num(idx), x_coeff[idx] )
+            rpc_model.set( Term.get_sample_den(idx), x_coeff[idx+19] )
+
+
+        #  Compute RMSE for errors
+        sumSquareError = 0
+        maxResidual = 0
+        for gcp in gcps:
+
+            npix = rpc_model.world_to_pixel( gcp.coordinate,
+                                             skip_elevation = False,
+                                             logger         = logger,
+                                             rpc_type       = rpc_type )
+            
+            delta = npix - gcp.pixel
+            val = math.sqrt( np.dot( delta, delta ) )
+            if val > maxResidual:
+                maxResidual = val
+            sumSquareError += val
+        
+        rms_error = math.sqrt( sumSquareError / len(gcps) )
+
+        rpc_model.set( Term.MAX_ERROR, maxResidual )
+        rpc_model.set( Term.RMS_ERROR, rms_error )
+
+        return rpc_model
+
+    
+    
+    @staticmethod
+    def create_base_model( gcps: list[GCP],
+                           image_size        = None,
+                           rpc_type: RPC_Type = RPC_Type.B,
+                           logger             = None ):
 
         # Determine image bounds from points
         image_bbox = None
@@ -602,6 +793,7 @@ class RPC00B(BaseTransformer):
         # We need to know the direction of flow for each axis so we can estimate 
         # Scale properly
         maxDeltaLLA = np.zeros( len( center_lla ) )
+        maxZ = 0
 
         #------------------------------------------#
         #-        Normalize all coordinates       -#
@@ -614,6 +806,8 @@ class RPC00B(BaseTransformer):
             x[idx] = d_lla[0]
             y[idx] = d_lla[1]
             z[idx] = d_lla[2]
+
+            maxZ = abs(gcps[idx].coordinate[2])
 
             #  Normalize pixel coordinates
             fx[idx] = (gcps[idx].pixel[0] - center_pix[0]) / (image_bbox.size[0] / 2.0)
@@ -631,8 +825,8 @@ class RPC00B(BaseTransformer):
             
         #  Solve delta        
         if abs(maxDeltaLLA[2]) < 1:
-            logger.info( f'Height model is too small.  Using delta of 1' )
-            maxDeltaLLA[2] = 1
+            logger.info( f'Height model is too small ({maxDeltaLLA[2]}).  Using delta of {maxZ}' )
+            maxDeltaLLA[2] = maxZ
 
         for idx in range( len( gcps ) ):
 
@@ -655,200 +849,12 @@ class RPC00B(BaseTransformer):
         rpc_model.set( Term.LON_OFF,    center_lla[0] )
         rpc_model.set( Term.LAT_OFF,    center_lla[1] )
         rpc_model.set( Term.HEIGHT_OFF, center_lla[2] )
-
-        #  Perform Least-Squares Fit
-        x_coeff = rpc_model.solve_coefficients( fx, x, y, z )
-        y_coeff = rpc_model.solve_coefficients( fy, x, y, z )
-
-        rpc_model.set( Term.LINE_NUM_COEFF_1, y_coeff[0] )
-        rpc_model.set( Term.LINE_DEN_COEFF_1, 1.0 )
-        rpc_model.set( Term.SAMP_NUM_COEFF_1, x_coeff[0] )
-        rpc_model.set( Term.SAMP_DEN_COEFF_1, 1.0 )
-
-        for idx in range( 2, 20 ):
-            rpc_model.set( Term.get_line_num(idx), y_coeff[idx] )
-            rpc_model.set( Term.get_line_den(idx), y_coeff[idx+19] )
-            rpc_model.set( Term.get_sample_num(idx), x_coeff[idx] )
-            rpc_model.set( Term.get_sample_den(idx), x_coeff[idx+19] )
-
-
-        #  Compute RMSE for errors
-        sumSquareError = 0
-        maxResidual = 0
-        for gcp in gcps:
-
-            npix = rpc_model.world_to_pixel( gcp.coordinate,
-                                             skip_elevation = False,
-                                             logger         = logger,
-                                             rpc_type       = rpc_type )
-            
-            delta = npix - gcp.pixel
-            val = math.sqrt( np.dot( delta, delta ) )
-            if val > maxResidual:
-                maxResidual = val
-            sumSquareError += val
-        
-        rms_error = math.sqrt( sumSquareError / len(gcps) )
-
-        rpc_model.set( Term.MAX_ERROR, maxResidual )
-        rpc_model.set( Term.RMS_ERROR, rms_error )
-
-        return rpc_model
-
-    def solve_coefficients( self,
-                            pix_terms,
-                            lon_vals, 
-                            lat_vals, 
-                            hgt_vals, 
-                            logger = None ):
-
-        if logger == None:
-            logger = logging.getLogger( 'RPC00B.solve_coefficients' )
-
-        idx = 0
-
-        r = np.copy( pix_terms )
-        w = np.ones( pix_terms.shape )
-        w = np.diag( w )
-
-        M = RPC00B.system_of_equations( r,
-                                        lon_vals,
-                                        lat_vals,
-                                        hgt_vals,
-                                        logger = logger )
-
-        iteration = 0
-        coefficients = None
-        temp_coeff = None
-        residual_value = 1e6
-        for index in range( 10 ):
-
-            if residual_value < 0.00001:
-                break
-
-            W2 = np.dot( w, w )
-
-            temp_coeff = pseudoinverse( M.T @ W2 @ M ) @ M.T @ W2 @ r
-
-            #  Set denominator matrix
-            denominator = np.ones( 20 )
-            for idx in range( 19 ):
-                denominator[idx+1] = temp_coeff[20 + idx]
-            
-            #  Setup weight matrix
-            weights = RPC00B.setup_weight_matrix( denominator,
-                                                  r,
-                                                  lon_vals,
-                                                  lat_vals,
-                                                  hgt_vals )
-            
-            #  Compute Residuals
-            residual = M.T @ W2 @ ( M @ temp_coeff - r )
-
-            #  Compute inner product
-            temp_res = np.dot( residual, residual )
-            residual_value = math.sqrt( float( temp_res ) )
-            
-            iteration += 1
-
-            
-        
-        coefficients = temp_coeff
-
-        return coefficients
     
-    @staticmethod
-    def system_of_equations( r,
-                             lon_vals,
-                             lat_vals,
-                             hgt_vals,
-                             logger = None ):
-
-        if logger == None:
-            logger = logging.getLogger( 'RPC00B.system_of_equations' )
-
-        eq = np.zeros( [ len( r ), 39 ], dtype = np.float64 )
-        for idx in range( len( r ) ):
-
-            eq[idx][0]  = 1
-            eq[idx][1]  = lon_vals[idx]
-            eq[idx][2]  = lat_vals[idx]
-            eq[idx][3]  = hgt_vals[idx]
-            eq[idx][4]  = lon_vals[idx] * lat_vals[idx]
-            eq[idx][5]  = lon_vals[idx] * hgt_vals[idx]
-            eq[idx][6]  = lat_vals[idx] * hgt_vals[idx]
-            eq[idx][7]  = lon_vals[idx] * lon_vals[idx]
-            eq[idx][8]  = lat_vals[idx] * lat_vals[idx]
-            eq[idx][9]  = hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][10] = lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][11] = lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][12] = lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][13] = lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][14] = lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][15] = lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][16] = lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][17] = lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][18] = lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][19] = hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][20] = -r[idx] * lon_vals[idx]
-            eq[idx][21] = -r[idx] * lat_vals[idx]
-            eq[idx][22] = -r[idx] * hgt_vals[idx]
-            eq[idx][23] = -r[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][24] = -r[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][25] = -r[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][26] = -r[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][27] = -r[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][28] = -r[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][29] = -r[idx] * lon_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][30] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lon_vals[idx]
-            eq[idx][31] = -r[idx] * lon_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][32] = -r[idx] * lon_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][33] = -r[idx] * lon_vals[idx] * lon_vals[idx] * lat_vals[idx]
-            eq[idx][34] = -r[idx] * lat_vals[idx] * lat_vals[idx] * lat_vals[idx]
-            eq[idx][35] = -r[idx] * lat_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-            eq[idx][36] = -r[idx] * lon_vals[idx] * lon_vals[idx] * hgt_vals[idx]
-            eq[idx][37] = -r[idx] * lat_vals[idx] * lat_vals[idx] * hgt_vals[idx]
-            eq[idx][38] = -r[idx] * hgt_vals[idx] * hgt_vals[idx] * hgt_vals[idx]
-
-
-        return eq
+        return { 'rpc_model': rpc_model,
+                 'x': x,
+                 'y': y,
+                 'z': z,
+                 'fx': fx,
+                 'fy': fy }
     
-    @staticmethod
-    def setup_weight_matrix( coeffs,
-                             f, x, y, z ):
-
-        result = np.zeros( f.shape[0] )
-        row = np.zeros( len( coeffs ) )
-
-        for idx in range( f.shape[0] ):
-            row[0]  = 1
-            row[1]  = x[idx]
-            row[2]  = y[idx]
-            row[3]  = z[idx]
-            row[4]  = x[idx] * y[idx]
-            row[5]  = x[idx] * z[idx]
-            row[6]  = y[idx] * z[idx]
-            row[7]  = x[idx] * x[idx]
-            row[8]  = y[idx] * y[idx]
-            row[9]  = z[idx] * z[idx]
-            row[10] = x[idx] * y[idx] * z[idx]
-            row[11] = x[idx] * x[idx] * x[idx]
-            row[12] = x[idx] * y[idx] * y[idx]
-            row[13] = x[idx] * z[idx] * z[idx]
-            row[14] = x[idx] * x[idx] * y[idx]
-            row[15] = y[idx] * y[idx] * y[idx]
-            row[16] = y[idx] * z[idx] * z[idx]
-            row[17] = x[idx] * x[idx] * z[idx]
-            row[18] = y[idx] * y[idx] * z[idx]
-            row[19] = z[idx] * z[idx] * z[idx]
-
-            result[idx] = 0.0
-            for idx2 in range( len( row ) ):
-                result[idx] += row[idx2] * coeffs[idx2]
-            
-      
-            if result[idx] > 0.000000001:
-                result[idx] = 1.0/result[idx]
-
-        return result
     
