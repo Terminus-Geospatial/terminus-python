@@ -370,7 +370,23 @@ class RPC00B(BaseTransformer):
         return ground_point
 
 
-    def estimate_bounds(self, dem):
+    @staticmethod
+    def adjust_pixel( model, dem, pix_act, pix_exp, world_act ):
+        
+        pix_adj = np.zeros( pix_act.shape )
+
+        pix_delta = pix_exp - pix_act
+        for idx in range( len( pix_delta ) ):
+            if abs( pix_delta[idx] ) > 10:
+                pix_adj[idx] = pix_delta[idx] / 2.0
+        
+        return model.pixel_to_world( pix_act + pix_adj,
+                                     dem_model = dem ), pix_delta
+        
+        
+
+
+    def estimate_bounds(self, dem, num_adjustments = 10 ):
 
         #  Get the image dims
         image_size = self.image_size_pixels()
@@ -385,6 +401,17 @@ class RPC00B(BaseTransformer):
                          'br': self.pixel_to_world( np.array( [ image_size[0]-1, image_size[1]-1 ], dtype = np.float64 ),
                                                     dem_model = dem ) }
         
+        #for iter in range( num_adjustments ):
+        #
+        #    #  Offer adjustment for tl
+        #    tl_pix_act = self.world_to_pixel( self.corners['tl'] )
+        #    self.corners['tl'], delta = RPC00B.adjust_pixel( model    = self,
+        #                                                     dem = dem, 
+        #                                                     pix_act   = tl_pix_act,
+        #                                                     pix_exp   = np.array( [ 0, 0 ], dtype = np.float64 ),
+        #                                                     world_act = self.corners['tl'] )
+        #    
+        #    print( f'Iteration: {iter}, TL Adjustment: {delta}' )
     
     def __str__(self):
         output  =  'RPC00B:\n'

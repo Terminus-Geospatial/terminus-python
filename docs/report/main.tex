@@ -1,0 +1,257 @@
+\documentclass[10pt]{report}
+
+%------------------------------------%
+%-      List Required Packages      -%
+%------------------------------------%
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{array}
+\usepackage{fullpage}
+\usepackage{tabularray}
+
+%--------------------------------%
+%-          Preamble            -%
+%--------------------------------%
+
+
+%----------------------------------%
+%-         Start Document         -%
+%----------------------------------%
+\begin{document}
+
+Our image has the following
+
+\begin{table}\centering
+
+    \begin{tabular}{ | c | c | }
+     \hline
+     $P = \left[ x_P, y_P \right]$            & Pixel Coordinate                \\\hline
+     $W = \left[ \lambda, \phi, \rho \right]$ & Geographic Coordinate           \\\hline
+     $U = \left[ X_u, Y_u, Z_u \right]$       & UTM Coordinate                  \\\hline
+     $I = \left[ W_I, H_I \right]$            & Image Size (Width and Height)   \\\hline
+     $N$                                      & Number of Ground-Control-Points \\\hline
+    \end{tabular}
+\end{table}
+
+%  Describe the corner transforms
+\chapter*{4 Corner Transforms}
+\addcontentsline{toc}{chapter}{4 Corner Transforms}
+
+First, determine the interpolation values $t_x$ and $t_y$.
+
+\begin{equation}
+t_x = \frac{x_P}{W_I}
+\end{equation}
+\begin{equation}
+t_y = \frac{y_P}{H_I}
+\end{equation}
+
+Next, apply the horizontal interpolation against the top and bottom rows.
+
+\begin{equation}
+P_{\texttt{utm}_1} = 
+\begin{bmatrix}
+U_{x_\texttt{TL}}\\
+U_{y_\texttt{TL}}\\
+U_{z_\texttt{TL}}
+\end{bmatrix} \cdot \left(1-t_x\right)
++ \begin{bmatrix}
+    U_{x_\texttt{TR}}\\
+    U_{y_\texttt{TR}}\\
+    U_{z_\texttt{TR}}
+    \end{bmatrix} \cdot t_x
+\end{equation}
+
+
+\begin{equation}
+    P_{\texttt{utm}_2} = 
+    \begin{bmatrix}
+    U_{{x}_\texttt{BL}}\\
+    U_{{y}_\texttt{BL}}\\
+    U_{{z}_\texttt{BL}}
+    \end{bmatrix} \cdot \left(1-t_x\right)
+    + \begin{bmatrix}
+        U_{{x}_\texttt{BR}}\\
+        U_{{y}_\texttt{BR}}\\
+        U_{{z}_\texttt{BR}}
+        \end{bmatrix} \cdot t_x
+\end{equation}
+
+Compute the vertical component.
+
+\begin{equation}
+    P_{\texttt{utm}} = 
+    P_{\texttt{utm}_1} \cdot \left(1-t_y\right) +
+    P_{\texttt{utm}_2} \cdot \left( t_y \right)
+\end{equation}
+
+%  Describe the geotransforms
+\chapter*{GDAL Geo-Transforms}
+\addcontentsline{toc}{chapter}{GDAL Geo-Transforms}
+
+Given Geo-Transform parameters:
+\begin{equation}
+\bar{T} = \left( T_1, T_2, T_3, T_4, T_5, T_6 \right)
+\end{equation}
+
+Solve for the geographic coordinates $(\lambda, \phi)$
+\begin{equation}
+\begin{bmatrix}
+\lambda,\\
+\phi\\
+1\\
+\end{bmatrix} = 
+\begin{bmatrix}
+T_1, & T_2, & T_5\\
+T_3, & T_4, & T_6\\
+  0, &   0, &   1
+\end{bmatrix} \cdot 
+\begin{bmatrix}
+x_P, \\
+y_P, \\
+1
+\end{bmatrix}
+\end{equation}
+
+
+Solving for a Geo-Transform
+
+Representing our transform as a set of linear equations...
+
+Longitude
+\begin{equation}
+\lambda = \left( T_1 \cdot x_P \right) + \left( T_2 \cdot y_p \right) + \left( T_5 \cdot 1 \right) 
+\end{equation}
+
+Latitude
+\begin{equation}
+\phi = \left( T_3 \cdot x_P \right) + \left( T_4 \cdot y_p \right) + \left( T_6 \cdot 1 \right) 
+\end{equation}
+
+Reconfigure to solve for Coefficients
+
+\begin{equation}
+\begin{matrix}
+A \cdot x_{\lambda} & = & B\\
+A \cdot x_{\phi}    & = & B
+\end{matrix}
+\end{equation}
+
+Where
+
+\begin{equation}
+\begin{bmatrix}
+{x_P}_1 & {y_P}_1 & 1 \\
+{x_P}_2 & {y_P}_2 & 1 \\
+\cdots  & \cdots  & 1 \\
+{x_P}_N & {y_P}_N & 1
+\end{bmatrix}
+\cdot 
+\begin{bmatrix}
+T_1\\T_2\\T_5
+\end{bmatrix} = 
+\begin{bmatrix}
+\lambda_1\\
+\lambda_2\\
+\cdots\\
+\lambda_N
+\end{bmatrix}
+\end{equation}
+
+\begin{equation}
+    \begin{bmatrix}
+    {x_P}_1 & {y_P}_1 & 1 \\
+    {x_P}_2 & {y_P}_2 & 1 \\
+    \cdots  & \cdots  & 1 \\
+    {x_P}_N & {y_P}_N & 1
+    \end{bmatrix}
+    \cdot 
+    \begin{bmatrix}
+    T_3\\T_4\\T_6
+    \end{bmatrix} = 
+    \begin{bmatrix}
+    \phi_1\\
+    \phi_2\\
+    \cdots\\
+    \phi_N
+    \end{bmatrix}
+    \end{equation}
+
+Solving
+
+\begin{equation}
+
+\end{equation}
+
+%  Solving RPCs
+\chapter*{Solving Rational Polynomial Coefficients}
+\addcontentsline{toc}{chapter}{Solving Rational Polynomial Coefficients}
+
+The weights used in this analysis is are the size of the number of terms. They are
+initialized to the Identity matrix.
+\begin{equation}
+\bar{W} = I = 
+\begin{bmatrix}
+  w_1  &    0   &    0   & \cdots & 0 \\
+   0   &   w_2  &    0   & \cdots & 0 \\
+   0   &    0   &   w_3  & \cdots & 0 \\
+\cdots & \cdots & \cdots & \cdots &  \cdots \\
+   0   &    0   &    0   &    0   &  w_n  \\
+\end{bmatrix}
+\end{equation}
+
+Establish the set of linear equations, this is an N x 40 matrix, 
+with N defined as the number of Ground-Control-Points. 
+X represents either the normalized $x$ or $y$ pixel values,
+depending on which set of coefficients are being solved.
+
+
+\begin{equation}
+f_{syseq}\left( X \rightarrow \{ P_x, P_y \} \right) = 
+    \begin{bmatrix}
+1_i,                        & 1        ,                                    & \cdots, & 1                          \\[4pt]
+L_i,                        & L_{(i+1)},                                    & \cdots, & L_n                        \\[4pt]
+P_i,                        & P_{(i+1)},                                    & \cdots, & P_n                        \\[4pt]
+H_i,                        & H_{(i+1)},                                    & \cdots, & H_n                        \\[4pt]
+L_i \cdot P_i,              & L_{(i+1)} \cdot P_{(i+1)},                    & \cdots, & L_n \cdot P_n              \\[4pt]
+L_i \cdot H_i,              & L_{(i+1)} \cdot H_{(i+1)},                    & \cdots, & L_n \cdot H_n              \\[4pt]
+P_i \cdot H_i,              & P_{(i+1)} \cdot H_{(i+1)},                    & \cdots, & P_n \cdot H_n              \\[4pt]
+{L_i}^2,                    & {L_{(i+1)}}^2,                                & \cdots, & {L_n}^2                    \\[4pt]
+{P_i}^2,                    & {P_{(i+1)}}^2,                                & \cdots, & {P_n}^2                    \\[4pt]
+{H_i}^2,                    & {H_{(i+1)}}^2,                                & \cdots, & {H_n}^2                    \\[4pt]
+L_i \cdot P_i \cdot H_i,    & L_{(i+1)} \cdot P_{(i+1)} \cdot H_{(i+1)},    & \cdots, & L_n \cdot P_n \cdot H_n    \\[4pt]
+{L_i}^3,                    & {L_{(i+1)}}^3,                                & \cdots, & {L_n}^3                    \\[4pt]
+L_i \cdot {P_i}^2,          & L_{(i+1)} \cdot {P_{(i+1)}}^2,                & \cdots, & L_n \cdot {P_n}^2          \\[4pt]
+L_i \cdot {H_i}^2,          & L_{(i+1)} \cdot {H_{(i+1)}}^2,                & \cdots, & L_n \cdot {H_n}^2          \\[4pt]
+{L_i}^2 \cdot P_i,          & {L_{(i+1)}}^2 \cdot P_{(i+1)},                & \cdots, & {L_n}^2 \cdot P_n          \\[4pt]
+{P_i}^3,                    & {P_{(i+1)}}^3,                                & \cdots, & {P_n}^3                    \\[4pt]
+P_i \cdot {H_i}^2,          & P_{(i+1)} \cdot {H_{i+1}}^2,                  & \cdots, & P_n \cdot {H_n}^2          \\[4pt]
+{L_i}^2 \cdot H_i,          & {L_{(i+1)}}^2 \cdot H_{(i+1)},                & \cdots, & {L_n}^2 \cdot H_n          \\[4pt]
+{P_i}^2 \cdot H_i,          & {P_{(i+1)}}^2 \cdot H_{(i+1)},                & \cdots, & {P_n}^2 \cdot H_n          \\[4pt]
+{H_i}^3,                    & {H_{(i+1)}}^3,                                & \cdots, & {H_n}^3                    \\[4pt]
+-{X_i} \cdot L_i            & -{X_{(i+1)}} \cdot L_{(i+1)}                  & \cdots, & -{X_i} \cdot L_n           \\[4pt]
+-{X_i} \cdot P_i            & -{X_{(i+1)}} \cdot P_{(i+1)}                  & \cdots, & -{X_i} \cdot P_n           \\[4pt]
+-{X_i} \cdot H_i            & -{X_{(i+1)}} \cdot H_{(i+1)}                  & \cdots, & -{X_i} \cdot H_n           \\[4pt]
+-{X_i} \cdot L_i \cdot P_i  & -{X_{(i+1)}} \cdot L_{(i+1)} \cdot P_{(i+1)}  & \cdots, & -{X_i} \cdot L_n \cdot P_n \\[4pt]
+-{X_i} \cdot L_i \cdot H_i  & -{X_{(i+1)}} \cdot L_{(i+1)} \cdot H_{(i+1)}  & \cdots, & -{X_i} \cdot L_n \cdot H_n \\[4pt]
+-{X_i} \cdot P_i \cdot H_i  & -{X_{(i+1)}} \cdot P_{(i+1)} \cdot H_{(i+1)}  & \cdots, & -{X_i} \cdot P_n \cdot H_n \\[4pt]
+-{X_i} \cdot {L_i}^2        & -{X_{(i+1)}} \cdot {L_{(i+1)}}^2              & \cdots, & -{X_i} \cdot {L_n}^2       \\[4pt]
+-{X_i} \cdot {P_i}^2        & -{X_{(i+1)}} \cdot {P_{(i+1)}}^2              & \cdots, & -{X_i} \cdot {P_n}^2       \\[4pt]
+-{X_i} \cdot {H_i}^2        & -{X_{(i+1)}} \cdot {H_{(i+1)}}^2              & \cdots, & -{X_i} \cdot {H_n}^2       \\[4pt]
+-{X_i} \cdot L_i \cdot P_i \cdot H_i  & -{X_{(i+1)}} \cdot L_{(i+1)} \cdot P_{(i+1)} \cdot H_{(i+1)}  & \cdots, & -{X_i} \cdot L_n \cdot P_n \cdot H_n \\[4pt]
+-{X_i} \cdot {L_i}^3                  & -{X_{(i+1)}} \cdot {L_{(i+1)}}^3                              & \cdots, & -{X_i} \cdot {L_n}^3                 \\[4pt]
+-{X_i} \cdot L_i \cdot {P_i}^2        & -{X_{(i+1)}} \cdot L_{(i+1)} \cdot {P_{(i+1)}}^2              & \cdots, & -{X_i} \cdot L_n \cdot {P_n}^2       \\[4pt]
+-{X_i} \cdot L_i \cdot {H_i}^2        & -{X_{(i+1)}} \cdot L_{(i+1)} \cdot {H_{(i+1)}}^2              & \cdots, & -{X_i} \cdot L_n \cdot {H_n}^2       \\[4pt]
+-{X_i} \cdot {L_i}^2 \cdot P_i        & -{X_{(i+1)}} \cdot {L_{(i+1)}}^2 \cdot P_{(i+1)}              & \cdots, & -{X_i} \cdot {L_n}^2 \cdot P_n       \\[4pt]
+-{X_i} \cdot {P_i}^3                  & -{X_{(i+1)}} \cdot {P_{(i+1)}}^3                              & \cdots, & -{X_i} \cdot {P_n}^3                 \\[4pt]
+-{X_i} \cdot P_i \cdot {H_i}^2        & -{X_{(i+1)}} \cdot P_{(i+1)} \cdot {H_{(i+1)}}^2              & \cdots, & -{X_i} \cdot P_n \cdot {H_n}^2       \\[4pt]
+-{X_i} \cdot {L_i}^2 \cdot H_i        & -{X_{(i+1)}} \cdot {L_{(i+1)}}^2 \cdot H_{(i+1)}              & \cdots, & -{X_i} \cdot {L_n}^2 \cdot H_n       \\[4pt]
+-{X_i} \cdot {P_i}^2 \cdot H_i        & -{X_{(i+1)}} \cdot {P_{(i+1)}}^2 \cdot H_{(i+1)}              & \cdots, & -{X_i} \cdot {P_n}^2 \cdot H_n       \\[4pt]
+-{X_i} \cdot {H_i}^3        & -{X_{(i+1)}} \cdot {H_{(i+1)}}^3              & \cdots, & -{X_i} \cdot {H_n}^3                                           \\[4pt]
+
+
+\end{bmatrix}
+\end{equation}
+
+\end{document}
